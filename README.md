@@ -26,3 +26,6 @@ Do this:
 python setup.py [picpython dir]
 
 where [picpython dir] is an absolute path to where you want picpython stored. (usually /opt/passcal/other)
+
+Remark: installing most of these packages requires superuser privledges so be sure to use your favorite 
+method of permission elevation.

@@ -8,6 +8,8 @@ def main():
         print("Usage: setup.py /path/to/picpython/lib")
 	exit()
 
+    #If versions ever change. Please change the values in the following lists only!
+
     compiled = ["pkg-config-0.28", "tcl8.5.15"  , "tk8.5.15"       ,
                 "zlib-1.2.8"     , "szip-2.1"   , "freetype-2.5.3" ,
                 "hdf5-1.8.13"    , "Python-2.7" , "jpeg-6b"        ,
@@ -27,6 +29,7 @@ def main():
         pyinstall(package)
 
 def build(package):
+    """Builds a compiled package and installs it"""
     os.chdir("./" + package)
     configure(package)
 
@@ -44,6 +47,7 @@ def build(package):
         os.chdir("..")
 
 def pyinstall(package):
+    """Install python packages via Picpython"""
     os.chdir("./" + package)
     if package.startswith("numpy"):
         create_site()
@@ -55,6 +59,7 @@ def pyinstall(package):
     os.chdir("..")
 
 def configure(package):
+    """Configure packages for building. Configures for install in specified folder"""
     configstr = "./configure --prefix=" + sys.argv[1]
     if package.startswith("tcl"):
         os.chdir("./unix")
@@ -68,18 +73,21 @@ def configure(package):
     os.system(configstr)
 
 def create_sym_links():
+    """Adds a sym link for picpython allowing you to run it from anywhere"""
     os.system("ln -s " + sys.argv[1] + "/bin/python " 
               + sys.argv[1] + "/bin/picpython")
     os.system("ln -s " + sys.argv[1] + "/bin/picpython " 
               + "/usr/bin/picpython")
 
 def create_site():
+    """Specific to the geos package"""
     with open("site.cfg", "w") as site:
         site.write("[DEFAULT]")
         site.write("library_dirs=" + sys.argv[1] + "/lib")
         site.write("library_dirs=" + sys.argv[1] + "/include")
 
 def set_environment_vars():
+    """Sets the needed environment variables for installation"""
     os.environ["GEOS_DIR"] = sys.argv[1]
     os.environ["HDF5_DIR"] = sys.argv[1]
     os.environ["PKG_CONFIG_PATH"] = sys.argv[1] + "/lib/pkgconfig"
@@ -87,6 +95,7 @@ def set_environment_vars():
     od.environ["LD_LIBRARY_PATH"] = sys.argv[1] + "/lib"
 
 def make_bin_dir():
+    """Creates the bin directory for placing the built executables"""
     directory = sys.argv[1] + "/bin"
 
     if not os.path.exists(directory):
