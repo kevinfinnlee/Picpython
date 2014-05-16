@@ -6,6 +6,7 @@ import os
 def main():
     if len(sys.argv) != 2:
         print("Usage: setup.py /path/to/picpython/lib")
+	exit()
 
     compiled = ["pkg-config-0.28", "tcl8.5.15"  , "tk8.5.15"       ,
                 "zlib-1.2.8"     , "szip-2.1"   , "freetype-2.5.3" ,
