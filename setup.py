@@ -92,7 +92,7 @@ def set_environment_vars():
     os.environ["HDF5_DIR"] = sys.argv[1]
     os.environ["PKG_CONFIG_PATH"] = sys.argv[1] + "/lib/pkgconfig"
     os.environ["CFLAGS"] = "-Wall -O -funroll-loops -malign-loops=2 -malign-functions=2"
-    od.environ["LD_LIBRARY_PATH"] = sys.argv[1] + "/lib"
+    os.environ["LD_LIBRARY_PATH"] = sys.argv[1] + "/lib"
 
 def make_bin_dir():
     """Creates the bin directory for placing the built executables"""
