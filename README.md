@@ -29,3 +29,7 @@ where [picpython dir] is an absolute path to where you want picpython stored. (u
 
 Remark: installing most of these packages requires superuser privledges so be sure to use your favorite 
 method of permission elevation.
+
+###Note for OS X Mavericks###
+Some of the options used in compilation do not play nice with clang. In order to fix this you can manually 
+change setup.py or install an old version of Apple GCC. There are guides online on how to do this.
