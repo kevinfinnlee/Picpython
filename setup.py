@@ -24,7 +24,7 @@ def main():
 
     for package in compiled:
         build(package)
-    
+
     for package in pyinstalls:
         pyinstall(package)
 
@@ -74,9 +74,9 @@ def configure(package):
 
 def create_sym_links():
     """Adds a sym link for picpython allowing you to run it from anywhere"""
-    os.system("ln -s " + sys.argv[1] + "/bin/python " 
+    os.system("ln -s " + sys.argv[1] + "/bin/python "
               + sys.argv[1] + "/bin/picpython")
-    os.system("ln -s " + sys.argv[1] + "/bin/picpython " 
+    os.system("ln -s " + sys.argv[1] + "/bin/picpython "
               + "/usr/bin/picpython")
 
 def create_site():
@@ -91,7 +91,7 @@ def set_environment_vars():
     os.environ["GEOS_DIR"] = sys.argv[1]
     os.environ["HDF5_DIR"] = sys.argv[1]
     os.environ["PKG_CONFIG_PATH"] = sys.argv[1] + "/lib/pkgconfig"
-    os.environ["CFLAGS"] = "-Wall -O -funroll-loops -malign-loops=2 -malign-functions=2"
+    os.environ["CFLAGS"] = "-Wall -O -funroll-loops -falign-loops=2 -falign-functions=2"
     os.environ["LD_LIBRARY_PATH"] = sys.argv[1] + "/lib"
 
 def make_bin_dir():
