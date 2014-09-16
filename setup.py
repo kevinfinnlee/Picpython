@@ -11,7 +11,7 @@ def main():
     #If versions ever change. Please change the values in the following lists only!
 
     compiled = ["pkg-config-0.28", "tcl8.5.15"  , "tk8.5.15"       ,
-                "zlib-1.2.8"     , "szip-2.1"   , "freetype-2.5.3" ,
+                "zlib-1.2.8"     , "szip-2.1"   , "freetype-2.3.11" ,
                 "hdf5-1.8.13"    , "Python-2.7" , "jpeg-6b"        ,
                 "geos-3.4.2"]
 
