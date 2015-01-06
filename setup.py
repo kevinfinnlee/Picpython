@@ -18,7 +18,7 @@ def main():
     pyinstalls = ["numpy-1.8.1"   , "pexpect-2.3"     , "pmw"          ,
                   "Imaging-1.1.7" , "matplotlib-1.3.1", "basemap-1.0.7",
                   "Pyrex-0.9.9"   , "tables-3.1.1"    , "pyserial-2.7",
-                  "numexpr-2.2.2" , "Cython-0.20.1"]
+                  "numexpr-2.2.2" , "Cython-0.20.1", "scipy"]
 
     set_environment_vars()
 
@@ -26,6 +26,8 @@ def main():
         build(package)
 
     for package in pyinstalls:
+	if package == "scipy":
+	    pyinstall(package, "--prefix=/opt/passcal/other")
         pyinstall(package)
 
 def build(package):
@@ -46,7 +48,7 @@ def build(package):
     if package.startswith("tk") or package.startswith("tcl"):
         os.chdir("..")
 
-def pyinstall(package):
+def pyinstall(package, extra=""):
     """Install python packages via Picpython"""
     os.chdir("./" + package)
     if package.startswith("numpy"):
@@ -55,7 +57,7 @@ def pyinstall(package):
         os.system("cp setup.cfg.template setup.cfg")
     elif package.startswith("tables"):
         os.system('picpython setup.py build --hdf5={0} --lflags="-Xlinker -rpath"')
-    os.system("picpython setup.py install")
+    os.system("picpython setup.py install " + extra)
     os.chdir("..")
 
 def configure(package):
