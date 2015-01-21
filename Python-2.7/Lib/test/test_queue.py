@@ -43,6 +43,9 @@ class _TriggerThread(threading.Thread):
 
 class BlockingTestMixin:
 
+    def tearDown(self):
+        self.t = None
+
     def do_blocking_test(self, block_func, block_args, trigger_func, trigger_args):
         self.t = _TriggerThread(trigger_func, trigger_args)
         self.t.start()
@@ -79,7 +82,7 @@ class BlockingTestMixin:
                 self.fail("trigger thread ended but event never set")
 
 
-class BaseQueueTest(unittest.TestCase, BlockingTestMixin):
+class BaseQueueTest(BlockingTestMixin):
     def setUp(self):
         self.cum = 0
         self.cumlock = threading.Lock()
@@ -95,8 +98,8 @@ class BaseQueueTest(unittest.TestCase, BlockingTestMixin):
                             LifoQueue = [222, 333, 111],
                             PriorityQueue = [111, 222, 333])
         actual_order = [q.get(), q.get(), q.get()]
-        self.assertEquals(actual_order, target_order[q.__class__.__name__],
-                          "Didn't seem to queue the correct data!")
+        self.assertEqual(actual_order, target_order[q.__class__.__name__],
+                         "Didn't seem to queue the correct data!")
         for i in range(QUEUE_SIZE-1):
             q.put(i)
             self.assertTrue(not q.empty(), "Queue should not be empty")
@@ -154,8 +157,8 @@ class BaseQueueTest(unittest.TestCase, BlockingTestMixin):
         for i in xrange(100):
             q.put(i)
         q.join()
-        self.assertEquals(self.cum, sum(range(100)),
-                          "q.join() did not block until all tasks were done")
+        self.assertEqual(self.cum, sum(range(100)),
+                         "q.join() did not block until all tasks were done")
         for i in (0,1):
             q.put(None)         # instruct the threads to close
         q.join()                # verify that you can join twice
@@ -191,13 +194,13 @@ class BaseQueueTest(unittest.TestCase, BlockingTestMixin):
         self.simple_queue_test(q)
 
 
-class QueueTest(BaseQueueTest):
+class QueueTest(BaseQueueTest, unittest.TestCase):
     type2test = Queue.Queue
 
-class LifoQueueTest(BaseQueueTest):
+class LifoQueueTest(BaseQueueTest, unittest.TestCase):
     type2test = Queue.LifoQueue
 
-class PriorityQueueTest(BaseQueueTest):
+class PriorityQueueTest(BaseQueueTest, unittest.TestCase):
     type2test = Queue.PriorityQueue
 
 
@@ -222,7 +225,7 @@ class FailingQueue(Queue.Queue):
             raise FailingQueueException, "You Lose"
         return Queue.Queue._get(self)
 
-class FailingQueueTest(unittest.TestCase, BlockingTestMixin):
+class FailingQueueTest(BlockingTestMixin, unittest.TestCase):
 
     def failing_queue_test(self, q):
         if not q.empty():

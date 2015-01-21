@@ -683,10 +683,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\Include\pycapsule.h"
-				>
-			</File>
-			<File
 				RelativePath="..\Include\code.h"
 				>
 			</File>
@@ -716,6 +712,10 @@
 			</File>
 			<File
 				RelativePath="..\Include\dictobject.h"
+				>
+			</File>
+			<File
+				RelativePath="..\Include\dtoa.h"
 				>
 			</File>
 			<File
@@ -908,10 +908,6 @@
 			</File>
 			<File
 				RelativePath="..\Include\pystrtod.h"
-				>
-			</File>
-			<File
-				RelativePath="..\Include\dtoa.h"
 				>
 			</File>
 			<File
@@ -1222,7 +1218,19 @@
 					>
 				</File>
 				<File
-					RelativePath="..\Modules\zlib\gzio.c"
+					RelativePath="..\Modules\zlib\gzclose.c"
+					>
+				</File>
+				<File
+					RelativePath="..\Modules\zlib\gzlib.c"
+					>
+				</File>
+				<File
+					RelativePath="..\Modules\zlib\gzread.c"
+					>
+				</File>
+				<File
+					RelativePath="..\Modules\zlib\gzwrite.c"
 					>
 				</File>
 				<File
@@ -1423,10 +1431,6 @@
 				>
 			</File>
 			<File
-				RelativePath="..\Objects\stringobject.c"
-				>
-			</File>
-			<File
 				RelativePath="..\Objects\capsule.c"
 				>
 			</File>
@@ -1440,10 +1444,6 @@
 			</File>
 			<File
 				RelativePath="..\Objects\cobject.c"
-				>
-			</File>
-			<File
-				RelativePath="..\Objects\capsule.c"
 				>
 			</File>
 			<File
@@ -1556,6 +1556,10 @@
 			</File>
 			<File
 				RelativePath="..\Objects\stringlib\split.h"
+				>
+			</File>
+			<File
+				RelativePath="..\Objects\stringobject.c"
 				>
 			</File>
 			<File
@@ -1719,6 +1723,10 @@
 				>
 			</File>
 			<File
+				RelativePath="..\Python\dtoa.c"
+				>
+			</File>
+			<File
 				RelativePath="..\Python\dynload_win.c"
 				>
 			</File>
@@ -1831,15 +1839,15 @@
 				>
 			</File>
 			<File
-				RelativePath="..\Python\dtoa.c"
-				>
-			</File>
-			<File
 				RelativePath="..\Python\Python-ast.c"
 				>
 			</File>
 			<File
 				RelativePath="..\Python\pythonrun.c"
+				>
+			</File>
+			<File
+				RelativePath="..\Python\random.c"
 				>
 			</File>
 			<File
@@ -1878,4 +1886,4 @@
 	</Files>
 	<Globals>
 	</Globals>
-</VisualStudioProject>
+</VisualStudioProject>

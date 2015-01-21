@@ -586,10 +586,13 @@ def parsefile():
        <ns0:empty-element />
     </ns0:root>
 
+    >>> with open(SIMPLE_XMLFILE) as f:
+    ...     data = f.read()
+
     >>> parser = ET.XMLParser()
     >>> parser.version  # doctest: +ELLIPSIS
     'Expat ...'
-    >>> parser.feed(open(SIMPLE_XMLFILE).read())
+    >>> parser.feed(data)
     >>> print serialize(parser.close())
     <root>
        <element key="value">text</element>
@@ -598,7 +601,7 @@ def parsefile():
     </root>
 
     >>> parser = ET.XMLTreeBuilder() # 1.2 compatibility
-    >>> parser.feed(open(SIMPLE_XMLFILE).read())
+    >>> parser.feed(data)
     >>> print serialize(parser.close())
     <root>
        <element key="value">text</element>
@@ -608,7 +611,7 @@ def parsefile():
 
     >>> target = ET.TreeBuilder()
     >>> parser = ET.XMLParser(target=target)
-    >>> parser.feed(open(SIMPLE_XMLFILE).read())
+    >>> parser.feed(data)
     >>> print serialize(parser.close())
     <root>
        <element key="value">text</element>
@@ -710,12 +713,20 @@ def iterparse():
     end {namespace}root
     end-ns None
 
+    >>> import StringIO
+
+    >>> events = ('start-ns', 'end-ns')
+    >>> context = ET.iterparse(StringIO.StringIO(r"<root xmlns=''/>"), events)
+    >>> for action, elem in context:
+    ...   print action, elem
+    start-ns ('', '')
+    end-ns None
+
     >>> events = ("start", "end", "bogus")
-    >>> context = iterparse(SIMPLE_XMLFILE, events)
+    >>> with open(SIMPLE_XMLFILE, "rb") as f:
+    ...     iterparse(f, events)
     Traceback (most recent call last):
     ValueError: unknown event 'bogus'
-
-    >>> import StringIO
 
     >>> source = StringIO.StringIO(
     ...     "<?xml version='1.0' encoding='iso-8859-1'?>\\n"
@@ -734,6 +745,7 @@ def iterparse():
     ...     print action, elem.tag
     ... except ET.ParseError, v:
     ...   print v
+    end document
     junk after document element: line 1, column 12
     """
 
@@ -763,6 +775,8 @@ def custom_builder():
     """
     Test parser w. custom builder.
 
+    >>> with open(SIMPLE_XMLFILE) as f:
+    ...     data = f.read()
     >>> class Builder:
     ...     def start(self, tag, attrib):
     ...         print "start", tag
@@ -772,7 +786,7 @@ def custom_builder():
     ...         pass
     >>> builder = Builder()
     >>> parser = ET.XMLParser(target=builder)
-    >>> parser.feed(open(SIMPLE_XMLFILE, "r").read())
+    >>> parser.feed(data)
     start root
     start element
     end element
@@ -782,6 +796,8 @@ def custom_builder():
     end empty-element
     end root
 
+    >>> with open(SIMPLE_NS_XMLFILE) as f:
+    ...     data = f.read()
     >>> class Builder:
     ...     def start(self, tag, attrib):
     ...         print "start", tag
@@ -795,7 +811,7 @@ def custom_builder():
     ...         print "comment", repr(data)
     >>> builder = Builder()
     >>> parser = ET.XMLParser(target=builder)
-    >>> parser.feed(open(SIMPLE_NS_XMLFILE, "r").read())
+    >>> parser.feed(data)
     pi pi 'data'
     comment ' comment '
     start {namespace}root
@@ -813,7 +829,8 @@ def getchildren():
     """
     Test Element.getchildren()
 
-    >>> tree = ET.parse(open(SIMPLE_XMLFILE, "r"))
+    >>> with open(SIMPLE_XMLFILE, "r") as f:
+    ...     tree = ET.parse(f)
     >>> for elem in tree.getroot().iter():
     ...     summarize_list(elem.getchildren())
     ['element', 'element', 'empty-element']
@@ -873,6 +890,12 @@ def check_encoding(encoding):
     >>> check_encoding("iso-8859-15")
     >>> check_encoding("cp437")
     >>> check_encoding("mac-roman")
+    >>> check_encoding("gbk")
+    Traceback (most recent call last):
+    ValueError: multi-byte encodings are not supported
+    >>> check_encoding("cp037")
+    Traceback (most recent call last):
+    ParseError: unknown encoding: line 1, column 30
     """
     ET.XML("<?xml version='1.0' encoding='%s'?><xml />" % encoding)
 
@@ -1092,6 +1115,11 @@ def qname():
     >>> elem = ET.Element(ET.QName("uri", "tag"))
     >>> serialize(elem) # 1.3
     '<ns0:tag xmlns:ns0="uri" />'
+    >>> elem = ET.Element(ET.QName("uri", "tag"))
+    >>> subelem = ET.SubElement(elem, ET.QName("uri", "tag1"))
+    >>> subelem = ET.SubElement(elem, ET.QName("uri", "tag2"))
+    >>> serialize(elem) # 1.4
+    '<ns0:tag xmlns:ns0="uri"><ns0:tag1 /><ns0:tag2 /></ns0:tag>'
 
     2) decorated attributes
 
@@ -1259,6 +1287,14 @@ XINCLUDE["C2.xml"] = """\
 
 XINCLUDE["count.txt"] = "324387"
 
+XINCLUDE["C2b.xml"] = """\
+<?xml version='1.0'?>
+<document xmlns:xi="http://www.w3.org/2001/XInclude">
+  <p>This document has been <em>accessed</em>
+  <xi:include href="count.txt" parse="text"/> times.</p>
+</document>
+"""
+
 XINCLUDE["C3.xml"] = """\
 <?xml version='1.0'?>
 <document xmlns:xi="http://www.w3.org/2001/XInclude">
@@ -1331,6 +1367,16 @@ def xinclude():
     >>> print serialize(document) # C2
     <document>
       <p>This document has been accessed
+      324387 times.</p>
+    </document>
+
+    Textual inclusion after sibling element (based on modified XInclude C.2)
+
+    >>> document = xinclude_loader("C2b.xml")
+    >>> ElementInclude.include(document, xinclude_loader)
+    >>> print(serialize(document)) # C2b
+    <document>
+      <p>This document has been <em>accessed</em>
       324387 times.</p>
     </document>
 
@@ -1736,6 +1782,16 @@ def bug_200709_iter_comment():
 
     """
 
+def bug_18347():
+    """
+
+    >>> e = ET.XML('<html><CamelCase>text</CamelCase></html>')
+    >>> serialize(e)
+    '<html><CamelCase>text</CamelCase></html>'
+    >>> serialize(e, method="html")
+    '<html><CamelCase>text</CamelCase></html>'
+    """
+
 # --------------------------------------------------------------------
 # reported on bugs.python.org
 
@@ -1789,6 +1845,26 @@ def check_issue6565():
 
     """
 
+def check_html_empty_elems_serialization(self):
+    # issue 15970
+    # from http://www.w3.org/TR/html401/index/elements.html
+    """
+
+    >>> empty_elems = ['AREA', 'BASE', 'BASEFONT', 'BR', 'COL', 'FRAME', 'HR',
+    ...                'IMG', 'INPUT', 'ISINDEX', 'LINK', 'META', 'PARAM']
+    >>> elems = ''.join('<%s />' % elem for elem in empty_elems)
+    >>> serialize(ET.XML('<html>%s</html>' % elems), method='html')
+    '<html><AREA><BASE><BASEFONT><BR><COL><FRAME><HR><IMG><INPUT><ISINDEX><LINK><META><PARAM></html>'
+    >>> serialize(ET.XML('<html>%s</html>' % elems.lower()), method='html')
+    '<html><area><base><basefont><br><col><frame><hr><img><input><isindex><link><meta><param></html>'
+    >>> elems = ''.join('<%s></%s>' % (elem, elem) for elem in empty_elems)
+    >>> serialize(ET.XML('<html>%s</html>' % elems), method='html')
+    '<html><AREA><BASE><BASEFONT><BR><COL><FRAME><HR><IMG><INPUT><ISINDEX><LINK><META><PARAM></html>'
+    >>> serialize(ET.XML('<html>%s</html>' % elems.lower()), method='html')
+    '<html><area><base><basefont><br><col><frame><hr><img><input><isindex><link><meta><param></html>'
+
+    """
+
 # --------------------------------------------------------------------
 
 
@@ -1797,6 +1873,10 @@ class CleanContext(object):
     checkwarnings = None
 
     def __init__(self, quiet=False):
+        if sys.flags.optimize >= 2:
+            # under -OO, doctests cannot be run and therefore not all warnings
+            # will be emitted
+            quiet = True
         deprecations = (
             # Search behaviour is broken if search path starts with "/".
             ("This search is broken in 1.3 and earlier, and will be fixed "

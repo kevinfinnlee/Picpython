@@ -1,7 +1,7 @@
 import unittest
 from test import test_support
 from itertools import *
-from weakref import proxy
+import weakref
 from decimal import Decimal
 from fractions import Fraction
 import sys
@@ -137,7 +137,8 @@ class TestBasicOps(unittest.TestCase):
                 self.assertEqual(result, list(combinations2(values, r))) # matches second pure python version
                 self.assertEqual(result, list(combinations3(values, r))) # matches second pure python version
 
-        # Test implementation detail:  tuple re-use
+    @test_support.impl_detail("tuple reuse is specific to CPython")
+    def test_combinations_tuple_reuse(self):
         self.assertEqual(len(set(map(id, combinations('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(combinations('abcde', 3))))), 1)
 
@@ -192,7 +193,7 @@ class TestBasicOps(unittest.TestCase):
 
                 regular_combs = list(combinations(values, r))           # compare to combs without replacement
                 if n == 0 or r <= 1:
-                    self.assertEquals(result, regular_combs)            # cases that should be identical
+                    self.assertEqual(result, regular_combs)            # cases that should be identical
                 else:
                     self.assertTrue(set(result) >= set(regular_combs))     # rest should be supersets of regular combs
 
@@ -207,7 +208,9 @@ class TestBasicOps(unittest.TestCase):
                 self.assertEqual(result, list(cwr1(values, r)))         # matches first pure python version
                 self.assertEqual(result, list(cwr2(values, r)))         # matches second pure python version
 
-        # Test implementation detail:  tuple re-use
+    @test_support.impl_detail("tuple reuse is specific to CPython")
+    def test_combinations_with_replacement_tuple_reuse(self):
+        cwr = combinations_with_replacement
         self.assertEqual(len(set(map(id, cwr('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(cwr('abcde', 3))))), 1)
 
@@ -271,7 +274,8 @@ class TestBasicOps(unittest.TestCase):
                     self.assertEqual(result, list(permutations(values, None))) # test r as None
                     self.assertEqual(result, list(permutations(values)))       # test default r
 
-        # Test implementation detail:  tuple re-use
+    @test_support.impl_detail("tuple reuse is specific to CPython")
+    def test_permutations_tuple_reuse(self):
         self.assertEqual(len(set(map(id, permutations('abcde', 3)))), 1)
         self.assertNotEqual(len(set(map(id, list(permutations('abcde', 3))))), 1)
 
@@ -288,20 +292,20 @@ class TestBasicOps(unittest.TestCase):
                 comb = list(combinations(s, r))
 
                 # Check size
-                self.assertEquals(len(prod), n**r)
-                self.assertEquals(len(cwr), (fact(n+r-1) // fact(r) // fact(n-1)) if n else (not r))
-                self.assertEquals(len(perm), 0 if r>n else fact(n) // fact(n-r))
-                self.assertEquals(len(comb), 0 if r>n else fact(n) // fact(r) // fact(n-r))
+                self.assertEqual(len(prod), n**r)
+                self.assertEqual(len(cwr), (fact(n+r-1) // fact(r) // fact(n-1)) if n else (not r))
+                self.assertEqual(len(perm), 0 if r>n else fact(n) // fact(n-r))
+                self.assertEqual(len(comb), 0 if r>n else fact(n) // fact(r) // fact(n-r))
 
                 # Check lexicographic order without repeated tuples
-                self.assertEquals(prod, sorted(set(prod)))
-                self.assertEquals(cwr, sorted(set(cwr)))
-                self.assertEquals(perm, sorted(set(perm)))
-                self.assertEquals(comb, sorted(set(comb)))
+                self.assertEqual(prod, sorted(set(prod)))
+                self.assertEqual(cwr, sorted(set(cwr)))
+                self.assertEqual(perm, sorted(set(perm)))
+                self.assertEqual(comb, sorted(set(comb)))
 
                 # Check interrelationships
-                self.assertEquals(cwr, [t for t in prod if sorted(t)==list(t)]) # cwr: prods which are sorted
-                self.assertEquals(perm, [t for t in prod if len(set(t))==r])    # perm: prods with no dups
+                self.assertEqual(cwr, [t for t in prod if sorted(t)==list(t)]) # cwr: prods which are sorted
+                self.assertEqual(perm, [t for t in prod if len(set(t))==r])    # perm: prods with no dups
                 self.assertEqual(comb, [t for t in perm if sorted(t)==list(t)]) # comb: perms that are sorted
                 self.assertEqual(comb, [t for t in cwr if len(set(t))==r])      # comb: cwrs without dups
                 self.assertEqual(comb, filter(set(cwr).__contains__, perm))     # comb: perm that is a cwr
@@ -526,11 +530,13 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(list(izip()), zip())
         self.assertRaises(TypeError, izip, 3)
         self.assertRaises(TypeError, izip, range(3), 3)
-        # Check tuple re-use (implementation detail)
         self.assertEqual([tuple(list(pair)) for pair in izip('abc', 'def')],
                          zip('abc', 'def'))
         self.assertEqual([pair for pair in izip('abc', 'def')],
                          zip('abc', 'def'))
+
+    @test_support.impl_detail("tuple reuse is specific to CPython")
+    def test_izip_tuple_reuse(self):
         ids = map(id, izip('abc', 'def'))
         self.assertEqual(min(ids), max(ids))
         ids = map(id, list(izip('abc', 'def')))
@@ -575,11 +581,13 @@ class TestBasicOps(unittest.TestCase):
             else:
                 self.fail('Did not raise Type in:  ' + stmt)
 
-        # Check tuple re-use (implementation detail)
         self.assertEqual([tuple(list(pair)) for pair in izip_longest('abc', 'def')],
                          zip('abc', 'def'))
         self.assertEqual([pair for pair in izip_longest('abc', 'def')],
                          zip('abc', 'def'))
+
+    @test_support.impl_detail("tuple reuse is specific to CPython")
+    def test_izip_longest_tuple_reuse(self):
         ids = map(id, izip_longest('abc', 'def'))
         self.assertEqual(min(ids), max(ids))
         ids = map(id, list(izip_longest('abc', 'def')))
@@ -683,12 +691,16 @@ class TestBasicOps(unittest.TestCase):
             args = map(iter, args)
             self.assertEqual(len(list(product(*args))), expected_len)
 
-        # Test implementation detail:  tuple re-use
+    @test_support.impl_detail("tuple reuse is specific to CPython")
+    def test_product_tuple_reuse(self):
         self.assertEqual(len(set(map(id, product('abc', 'def')))), 1)
         self.assertNotEqual(len(set(map(id, list(product('abc', 'def'))))), 1)
 
     def test_repeat(self):
         self.assertEqual(list(repeat(object='a', times=3)), ['a', 'a', 'a'])
+        self.assertEqual(list(repeat(object='a', times=0)), [])
+        self.assertEqual(list(repeat(object='a', times=-1)), [])
+        self.assertEqual(list(repeat(object='a', times=-2)), [])
         self.assertEqual(zip(xrange(3),repeat('a')),
                          [(0, 'a'), (1, 'a'), (2, 'a')])
         self.assertEqual(list(repeat('a', 3)), ['a', 'a', 'a'])
@@ -704,6 +716,12 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(repr(r), 'repeat((1+0j), 5)')
         list(r)
         self.assertEqual(repr(r), 'repeat((1+0j), 0)')
+
+    def test_repeat_with_negative_times(self):
+        self.assertEqual(repr(repeat('a', -1)), "repeat('a', 0)")
+        self.assertEqual(repr(repeat('a', -2)), "repeat('a', 0)")
+        self.assertEqual(repr(repeat('a', times=-1)), "repeat('a', 0)")
+        self.assertEqual(repr(repeat('a', times=-2)), "repeat('a', 0)")
 
     def test_imap(self):
         self.assertEqual(list(imap(operator.pow, range(3), range(1,7))),
@@ -777,6 +795,21 @@ class TestBasicOps(unittest.TestCase):
         self.assertRaises(ValueError, islice, xrange(10), 'a', 1, 1)
         self.assertRaises(ValueError, islice, xrange(10), 1, 'a', 1)
         self.assertEqual(len(list(islice(count(), 1, 10, maxsize))), 1)
+
+        # Issue #10323:  Less islice in a predictable state
+        c = count()
+        self.assertEqual(list(islice(c, 1, 3, 50)), [1])
+        self.assertEqual(next(c), 3)
+
+        # Issue #21321: check source iterator is not referenced
+        # from islice() after the latter has been exhausted
+        it = (x for x in (1, 2))
+        wr = weakref.ref(it)
+        it = islice(it, 1)
+        self.assertIsNotNone(wr())
+        list(it) # exhaust the iterator
+        test_support.gc_collect()
+        self.assertIsNone(wr())
 
     def test_takewhile(self):
         data = [1, 3, 5, 20, 2, 4, 6, 8]
@@ -887,10 +920,16 @@ class TestBasicOps(unittest.TestCase):
 
         # test that tee objects are weak referencable
         a, b = tee(xrange(10))
-        p = proxy(a)
+        p = weakref.proxy(a)
         self.assertEqual(getattr(p, '__class__'), type(b))
         del a
         self.assertRaises(ReferenceError, getattr, p, '__class__')
+
+    # Issue 13454: Crash when deleting backward iterator from tee()
+    def test_tee_del_backward(self):
+        forward, backward = tee(repeat(None, 20000000))
+        any(forward)  # exhaust the iterator
+        del backward
 
     def test_StopIteration(self):
         self.assertRaises(StopIteration, izip().next)
@@ -1470,7 +1509,7 @@ Samuele
 ...     return chain(iterable, repeat(None))
 
 >>> def ncycles(iterable, n):
-...     "Returns the seqeuence elements n times"
+...     "Returns the sequence elements n times"
 ...     return chain(*repeat(iterable, n))
 
 >>> def dotproduct(vec1, vec2):

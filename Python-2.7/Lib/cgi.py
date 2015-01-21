@@ -37,7 +37,6 @@ __version__ = "2.6"
 from operator import attrgetter
 import sys
 import os
-import urllib
 import UserDict
 import urlparse
 
@@ -132,7 +131,7 @@ def parse(fp=None, environ=os.environ, keep_blank_values=0, strict_parsing=0):
         environ         : environment dictionary; default: os.environ
 
         keep_blank_values: flag indicating whether blank values in
-            URL encoded forms should be treated as blank strings.
+            percent-encoded forms should be treated as blank strings.
             A true value indicates that blanks should be retained as
             blank strings.  The default false value indicates that
             blank values are to be ignored and treated as if they were
@@ -293,7 +292,7 @@ def _parseparam(s):
     while s[:1] == ';':
         s = s[1:]
         end = s.find(';')
-        while end > 0 and s.count('"', 0, end) % 2:
+        while end > 0 and (s.count('"', 0, end) - s.count('\\"', 0, end)) % 2:
             end = s.find(';', end + 1)
         if end < 0:
             end = len(s)
@@ -411,7 +410,7 @@ class FieldStorage:
         environ         : environment dictionary; default: os.environ
 
         keep_blank_values: flag indicating whether blank values in
-            URL encoded forms should be treated as blank strings.
+            percent-encoded forms should be treated as blank strings.
             A true value indicates that blanks should be retained as
             blank strings.  The default false value indicates that
             blank values are to be ignored and treated as if they were
@@ -698,6 +697,9 @@ class FieldStorage:
             if not line:
                 self.done = -1
                 break
+            if delim == "\r":
+                line = delim + line
+                delim = ""
             if line[:2] == "--" and last_line_lfend:
                 strippedline = line.strip()
                 if strippedline == next:
@@ -714,6 +716,12 @@ class FieldStorage:
                 delim = "\n"
                 line = line[:-1]
                 last_line_lfend = True
+            elif line[-1] == "\r":
+                # We may interrupt \r\n sequences if they span the 2**16
+                # byte boundary
+                delim = "\r"
+                line = line[:-1]
+                last_line_lfend = False
             else:
                 delim = ""
                 last_line_lfend = False

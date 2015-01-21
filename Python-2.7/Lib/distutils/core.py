@@ -6,7 +6,7 @@ indirectly provides the Distribution and Command classes, although they are
 really defined in distutils.dist and distutils.cmd.
 """
 
-__revision__ = "$Id: core.py 77704 2010-01-23 09:23:15Z tarek.ziade $"
+__revision__ = "$Id$"
 
 import sys
 import os
@@ -14,7 +14,6 @@ import os
 from distutils.debug import DEBUG
 from distutils.errors import (DistutilsSetupError, DistutilsArgError,
                               DistutilsError, CCompilerError)
-from distutils.util import grok_environment_error
 
 # Mainly import these so setup scripts can "from distutils.core import" them.
 from distutils.dist import Distribution
@@ -153,13 +152,11 @@ def setup(**attrs):
         except KeyboardInterrupt:
             raise SystemExit, "interrupted"
         except (IOError, os.error), exc:
-            error = grok_environment_error(exc)
-
             if DEBUG:
-                sys.stderr.write(error + "\n")
+                sys.stderr.write("error: %s\n" % (exc,))
                 raise
             else:
-                raise SystemExit, error
+                raise SystemExit, "error: %s" % (exc,)
 
         except (DistutilsError,
                 CCompilerError), msg:
@@ -216,7 +213,11 @@ def run_setup(script_name, script_args=None, stop_after="run"):
             sys.argv[0] = script_name
             if script_args is not None:
                 sys.argv[1:] = script_args
-            exec open(script_name, 'r').read() in g, l
+            f = open(script_name)
+            try:
+                exec f.read() in g, l
+            finally:
+                f.close()
         finally:
             sys.argv = save_argv
             _setup_stop_after = None

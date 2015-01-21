@@ -8,6 +8,10 @@
 
 .. versionadded:: 2.5
 
+**Source code:** :source:`Lib/runpy.py`
+
+--------------
+
 The :mod:`runpy` module is used to locate and run Python modules without
 importing them first. Its main use is to implement the :option:`-m` command
 line switch that allows scripts to be located using the Python module
@@ -17,6 +21,9 @@ The :mod:`runpy` module provides two functions:
 
 
 .. function:: run_module(mod_name, init_globals=None, run_name=None, alter_sys=False)
+
+   .. index::
+      module: __main__
 
    Execute the code of the specified module and return the resulting module
    globals dictionary. The module's code is first located using the standard
@@ -73,6 +80,9 @@ The :mod:`runpy` module provides two functions:
 
 .. function:: run_path(file_path, init_globals=None, run_name=None)
 
+   .. index::
+      module: __main__
+
    Execute the code at the named filesystem location and return the resulting
    module globals dictionary. As with a script name supplied to the CPython
    command line, the supplied path may refer to a Python source file, a
@@ -120,7 +130,7 @@ The :mod:`runpy` module provides two functions:
 
    Note that, unlike :func:`run_module`, the alterations made to :mod:`sys`
    are not optional in this function as these adjustments are essential to
-   allowing the execution of sys.path entries. As the thread safety
+   allowing the execution of sys.path entries. As the thread-safety
    limitations still apply, use of this function in threaded code should be
    either serialised with the import lock or delegated to a separate process.
 

@@ -96,7 +96,7 @@ static int floatsleep(double);
 static double floattime(void);
 
 /* For Y2K check */
-static PyObject *moddict;
+static PyObject *moddict = NULL;
 
 /* Exposed in timefuncs.h. */
 time_t
@@ -487,7 +487,7 @@ time_strftime(PyObject *self, PyObject *args)
         if (outbuf[1]=='#')
             ++outbuf; /* not documented by python, */
         if (outbuf[1]=='\0' ||
-            !strchr("aAbBcdfHIjmMpSUwWxXyYzZ%", outbuf[1]))
+            !strchr("aAbBcdHIjmMpSUwWxXyYzZ%", outbuf[1]))
         {
             PyErr_SetString(PyExc_ValueError, "Invalid format string");
             return 0;
@@ -572,6 +572,10 @@ time_asctime(PyObject *self, PyObject *args)
     } else if (!gettmarg(tup, &buf))
         return NULL;
     p = asctime(&buf);
+    if (p == NULL) {
+        PyErr_SetString(PyExc_ValueError, "invalid time");
+        return NULL;
+    }
     if (p[24] == '\n')
         p[24] = '\0';
     return PyString_FromString(p);
@@ -628,8 +632,11 @@ time_mktime(PyObject *self, PyObject *tup)
     time_t tt;
     if (!gettmarg(tup, &buf))
         return NULL;
+    buf.tm_wday = -1;  /* sentinel; original value ignored */
     tt = mktime(&buf);
-    if (tt == (time_t)(-1)) {
+    /* Return value of -1 does not necessarily mean an error, but tm_wday
+     * cannot remain set to -1 if mktime succeeded. */
+    if (tt == (time_t)(-1) && buf.tm_wday == -1) {
         PyErr_SetString(PyExc_OverflowError,
                         "mktime argument out of range");
         return NULL;
@@ -667,7 +674,7 @@ time_tzset(PyObject *self, PyObject *unused)
 }
 
 PyDoc_STRVAR(tzset_doc,
-"tzset(zone)\n\
+"tzset()\n\
 \n\
 Initialize, or reinitialize, the local timezone to the value stored in\n\
 os.environ['TZ']. The TZ environment variable should be specified in\n\
@@ -851,6 +858,11 @@ inittime(void)
     /* Accept 2-digit dates unless PYTHONY2K is set and non-empty */
     p = Py_GETENV("PYTHONY2K");
     PyModule_AddIntConstant(m, "accept2dyear", (long) (!p || !*p));
+    /* If an embedded interpreter is shutdown and reinitialized the old
+       moddict was not decrefed on shutdown and the next import of this
+       module leads to a leak.  Conditionally decref here to prevent that.
+    */
+    Py_XDECREF(moddict);
     /* Squirrel away the module's dictionary for the y2k check */
     moddict = PyModule_GetDict(m);
     Py_INCREF(moddict);
@@ -1044,4 +1056,9 @@ floatsleep(double secs)
     return 0;
 }
 
-
+/* export floattime to socketmodule.c */
+PyAPI_FUNC(double)
+_PyTime_FloatTime(void)
+{
+    return floattime();
+}

@@ -57,7 +57,8 @@ class DumpPickle_LoadCPickle(AbstractPickleTests):
         return cPickle.loads(buf)
 
 def have_python_version(name):
-    """Check whether the given name is a valid Python binary.
+    """Check whether the given name is a valid Python binary and has
+    test.test_support.
 
     This respects your PATH.
 
@@ -67,7 +68,7 @@ def have_python_version(name):
     Returns:
         True if the name is valid, False otherwise.
     """
-    return os.system(name + " -c 'import sys; sys.exit()'") == 0
+    return os.system(name + " -c 'import test.test_support'") == 0
 
 
 class AbstractCompatTests(AbstractPickleTests):
@@ -151,6 +152,10 @@ class AbstractCompatTests(AbstractPickleTests):
 
     # Backwards compatibility was explicitly broken in r67934 to fix a bug.
     def test_unicode_high_plane(self):
+        pass
+
+    # This tests a fix that's in 2.7 only
+    def test_dynamic_class(self):
         pass
 
     if test_support.have_unicode:

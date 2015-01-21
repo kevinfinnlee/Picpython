@@ -3,7 +3,7 @@
 # (taradino@softhome.net) -- translated from the original Optik
 # test suite to this PyUnit-based version.
 #
-# $Id: test_optparse.py 82242 2010-06-26 03:27:32Z r.david.murray $
+# $Id$
 #
 
 import sys
@@ -383,6 +383,7 @@ class TestOptionParser(BaseTest):
         self.assertRaises(self.parser.remove_option, ('foo',), None,
                           ValueError, "no such option 'foo'")
 
+    @test_support.impl_detail('Relies on sys.getrefcount', cpython=True)
     def test_refleak(self):
         # If an OptionParser is carrying around a reference to a large
         # object, various cycles can prevent it from being GC'd in
@@ -427,19 +428,19 @@ class TestTypeAliases(BaseTest):
 
     def test_str_aliases_string(self):
         self.parser.add_option("-s", type="str")
-        self.assertEquals(self.parser.get_option("-s").type, "string")
+        self.assertEqual(self.parser.get_option("-s").type, "string")
 
     def test_new_type_object(self):
         self.parser.add_option("-s", type=str)
-        self.assertEquals(self.parser.get_option("-s").type, "string")
+        self.assertEqual(self.parser.get_option("-s").type, "string")
         self.parser.add_option("-x", type=int)
-        self.assertEquals(self.parser.get_option("-x").type, "int")
+        self.assertEqual(self.parser.get_option("-x").type, "int")
 
     def test_old_type_object(self):
         self.parser.add_option("-s", type=types.StringType)
-        self.assertEquals(self.parser.get_option("-s").type, "string")
+        self.assertEqual(self.parser.get_option("-s").type, "string")
         self.parser.add_option("-x", type=types.IntType)
-        self.assertEquals(self.parser.get_option("-x").type, "int")
+        self.assertEqual(self.parser.get_option("-x").type, "int")
 
 
 # Custom type for testing processing of default values.
@@ -769,6 +770,13 @@ class TestStandard(BaseTest):
         self.assertParseFail(["-test"],
                              "no such option: -e")
 
+    def test_add_option_accepts_unicode(self):
+        self.parser.add_option(u"-u", u"--unicode", action="store_true")
+        self.assertParseOK(["-u"],
+                           {'a': None, 'boo': None, 'foo': None, 'unicode': True},
+                           [])
+
+
 class TestBool(BaseTest):
     def setUp(self):
         options = [make_option("-v",
@@ -791,15 +799,13 @@ class TestBool(BaseTest):
         (options, args) = self.assertParseOK(["-q"],
                                              {'verbose': 0},
                                              [])
-        if hasattr(__builtins__, 'False'):
-            self.assertTrue(options.verbose is False)
+        self.assertTrue(options.verbose is False)
 
     def test_bool_true(self):
         (options, args) = self.assertParseOK(["-v"],
                                              {'verbose': 1},
                                              [])
-        if hasattr(__builtins__, 'True'):
-            self.assertTrue(options.verbose is True)
+        self.assertTrue(options.verbose is True)
 
     def test_bool_flicker_on_and_off(self):
         self.assertParseOK(["-qvq", "-q", "-v"],
@@ -1439,6 +1445,39 @@ Options:
   -h, --help         show this help message and exit
 """
 
+_expected_very_help_short_lines = """\
+Usage: bar.py [options]
+
+Options:
+  -a APPLE
+    throw
+    APPLEs at
+    basket
+  -b NUM, --boo=NUM
+    shout
+    "boo!" NUM
+    times (in
+    order to
+    frighten
+    away all
+    the evil
+    spirits
+    that cause
+    trouble and
+    mayhem)
+  --foo=FOO
+    store FOO
+    in the foo
+    list for
+    later
+    fooing
+  -h, --help
+    show this
+    help
+    message and
+    exit
+"""
+
 class TestHelp(BaseTest):
     def setUp(self):
         self.parser = self.make_parser(80)
@@ -1500,6 +1539,8 @@ class TestHelp(BaseTest):
         # we look at $COLUMNS.
         self.parser = self.make_parser(60)
         self.assertHelpEquals(_expected_help_short_lines)
+        self.parser = self.make_parser(0)
+        self.assertHelpEquals(_expected_very_help_short_lines)
 
     def test_help_unicode(self):
         self.parser = InterceptingOptionParser(usage=SUPPRESS_USAGE)

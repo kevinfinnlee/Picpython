@@ -43,8 +43,6 @@ class TestPartial(unittest.TestCase):
         self.assertEqual(p.args, (1, 2))
         self.assertEqual(p.keywords, dict(a=10, b=20))
         # attributes should not be writable
-        if not isinstance(self.thetype, type):
-            return
         self.assertRaises(TypeError, setattr, p, 'func', map)
         self.assertRaises(TypeError, setattr, p, 'args', (1, 2))
         self.assertRaises(TypeError, setattr, p, 'keywords', dict(a=1, b=2))
@@ -151,6 +149,23 @@ class TestPartial(unittest.TestCase):
         f_copy = pickle.loads(pickle.dumps(f))
         self.assertEqual(signature(f), signature(f_copy))
 
+    # Issue 6083: Reference counting bug
+    def test_setstate_refcount(self):
+        class BadSequence:
+            def __len__(self):
+                return 4
+            def __getitem__(self, key):
+                if key == 0:
+                    return max
+                elif key == 1:
+                    return tuple(range(1000000))
+                elif key in (2, 3):
+                    return {}
+                raise IndexError
+
+        f = self.thetype(object)
+        self.assertRaises(SystemError, f.__setstate__, BadSequence())
+
 class PartialSubclass(functools.partial):
     pass
 
@@ -163,7 +178,10 @@ class TestPythonPartial(TestPartial):
     thetype = PythonPartial
 
     # the python version isn't picklable
-    def test_pickle(self): pass
+    test_pickle = test_setstate_refcount = None
+
+    # the python version isn't a type
+    test_attributes = None
 
 class TestUpdateWrapper(unittest.TestCase):
 
@@ -232,6 +250,7 @@ class TestUpdateWrapper(unittest.TestCase):
         self.assertEqual(wrapper.attr, 'This is a different test')
         self.assertEqual(wrapper.dict_attr, f.dict_attr)
 
+    @test_support.requires_docstrings
     def test_builtin_update(self):
         # Test for bug #1576241
         def wrapper():
@@ -258,7 +277,7 @@ class TestWraps(TestUpdateWrapper):
         self.assertEqual(wrapper.__name__, 'f')
         self.assertEqual(wrapper.attr, 'This is also a test')
 
-    @unittest.skipIf(not sys.flags.optimize <= 1,
+    @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_default_update_doc(self):
         wrapper = self._default_update()
@@ -361,12 +380,14 @@ class TestTotalOrdering(unittest.TestCase):
                 self.value = value
             def __lt__(self, other):
                 return self.value < other.value
-        self.assert_(A(1) < A(2))
-        self.assert_(A(2) > A(1))
-        self.assert_(A(1) <= A(2))
-        self.assert_(A(2) >= A(1))
-        self.assert_(A(2) <= A(2))
-        self.assert_(A(2) >= A(2))
+            def __eq__(self, other):
+                return self.value == other.value
+        self.assertTrue(A(1) < A(2))
+        self.assertTrue(A(2) > A(1))
+        self.assertTrue(A(1) <= A(2))
+        self.assertTrue(A(2) >= A(1))
+        self.assertTrue(A(2) <= A(2))
+        self.assertTrue(A(2) >= A(2))
 
     def test_total_ordering_le(self):
         @functools.total_ordering
@@ -375,12 +396,14 @@ class TestTotalOrdering(unittest.TestCase):
                 self.value = value
             def __le__(self, other):
                 return self.value <= other.value
-        self.assert_(A(1) < A(2))
-        self.assert_(A(2) > A(1))
-        self.assert_(A(1) <= A(2))
-        self.assert_(A(2) >= A(1))
-        self.assert_(A(2) <= A(2))
-        self.assert_(A(2) >= A(2))
+            def __eq__(self, other):
+                return self.value == other.value
+        self.assertTrue(A(1) < A(2))
+        self.assertTrue(A(2) > A(1))
+        self.assertTrue(A(1) <= A(2))
+        self.assertTrue(A(2) >= A(1))
+        self.assertTrue(A(2) <= A(2))
+        self.assertTrue(A(2) >= A(2))
 
     def test_total_ordering_gt(self):
         @functools.total_ordering
@@ -389,12 +412,14 @@ class TestTotalOrdering(unittest.TestCase):
                 self.value = value
             def __gt__(self, other):
                 return self.value > other.value
-        self.assert_(A(1) < A(2))
-        self.assert_(A(2) > A(1))
-        self.assert_(A(1) <= A(2))
-        self.assert_(A(2) >= A(1))
-        self.assert_(A(2) <= A(2))
-        self.assert_(A(2) >= A(2))
+            def __eq__(self, other):
+                return self.value == other.value
+        self.assertTrue(A(1) < A(2))
+        self.assertTrue(A(2) > A(1))
+        self.assertTrue(A(1) <= A(2))
+        self.assertTrue(A(2) >= A(1))
+        self.assertTrue(A(2) <= A(2))
+        self.assertTrue(A(2) >= A(2))
 
     def test_total_ordering_ge(self):
         @functools.total_ordering
@@ -403,24 +428,26 @@ class TestTotalOrdering(unittest.TestCase):
                 self.value = value
             def __ge__(self, other):
                 return self.value >= other.value
-        self.assert_(A(1) < A(2))
-        self.assert_(A(2) > A(1))
-        self.assert_(A(1) <= A(2))
-        self.assert_(A(2) >= A(1))
-        self.assert_(A(2) <= A(2))
-        self.assert_(A(2) >= A(2))
+            def __eq__(self, other):
+                return self.value == other.value
+        self.assertTrue(A(1) < A(2))
+        self.assertTrue(A(2) > A(1))
+        self.assertTrue(A(1) <= A(2))
+        self.assertTrue(A(2) >= A(1))
+        self.assertTrue(A(2) <= A(2))
+        self.assertTrue(A(2) >= A(2))
 
     def test_total_ordering_no_overwrite(self):
         # new methods should not overwrite existing
         @functools.total_ordering
-        class A(int):
+        class A(str):
             pass
-        self.assert_(A(1) < A(2))
-        self.assert_(A(2) > A(1))
-        self.assert_(A(1) <= A(2))
-        self.assert_(A(2) >= A(1))
-        self.assert_(A(2) <= A(2))
-        self.assert_(A(2) >= A(2))
+        self.assertTrue(A("a") < A("b"))
+        self.assertTrue(A("b") > A("a"))
+        self.assertTrue(A("a") <= A("b"))
+        self.assertTrue(A("b") >= A("a"))
+        self.assertTrue(A("b") <= A("b"))
+        self.assertTrue(A("b") >= A("b"))
 
     def test_no_operations_defined(self):
         with self.assertRaises(ValueError):
@@ -428,12 +455,29 @@ class TestTotalOrdering(unittest.TestCase):
             class A:
                 pass
 
+    def test_bug_10042(self):
+        @functools.total_ordering
+        class TestTO:
+            def __init__(self, value):
+                self.value = value
+            def __eq__(self, other):
+                if isinstance(other, TestTO):
+                    return self.value == other.value
+                return False
+            def __lt__(self, other):
+                if isinstance(other, TestTO):
+                    return self.value < other.value
+                raise TypeError
+        with self.assertRaises(TypeError):
+            TestTO(8) <= ()
+
 def test_main(verbose=None):
     test_classes = (
         TestPartial,
         TestPartialSubclass,
         TestPythonPartial,
         TestUpdateWrapper,
+        TestTotalOrdering,
         TestWraps,
         TestReduce,
     )

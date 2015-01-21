@@ -22,7 +22,7 @@ def nestedTuple(nesting):
 class ReprTests(unittest.TestCase):
 
     def test_string(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         eq(r("abc"), "'abc'")
         eq(r("abcdefghijklmnop"),"'abcdefghijklmnop'")
 
@@ -36,7 +36,7 @@ class ReprTests(unittest.TestCase):
         eq(r(s), expected)
 
     def test_tuple(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         eq(r((1,)), "(1,)")
 
         t3 = (1, 2, 3)
@@ -51,7 +51,7 @@ class ReprTests(unittest.TestCase):
         from array import array
         from collections import deque
 
-        eq = self.assertEquals
+        eq = self.assertEqual
         # Tuples give up after 6 elements
         eq(r(()), "()")
         eq(r((1,)), "(1,)")
@@ -101,7 +101,7 @@ class ReprTests(unittest.TestCase):
                    "array('i', [1, 2, 3, 4, 5, ...])")
 
     def test_numbers(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         eq(r(123), repr(123))
         eq(r(123L), repr(123L))
         eq(r(1.0/3), repr(1.0/3))
@@ -111,7 +111,7 @@ class ReprTests(unittest.TestCase):
         eq(r(n), expected)
 
     def test_instance(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         i1 = ClassWithRepr("a")
         eq(r(i1), repr(i1))
 
@@ -130,10 +130,10 @@ class ReprTests(unittest.TestCase):
     def test_file(self):
         fp = open(unittest.__file__)
         self.assertTrue(repr(fp).startswith(
-            "<open file '%s', mode 'r' at 0x" % unittest.__file__))
+            "<open file %r, mode 'r' at 0x" % unittest.__file__))
         fp.close()
         self.assertTrue(repr(fp).startswith(
-            "<closed file '%s', mode 'r' at 0x" % unittest.__file__))
+            "<closed file %r, mode 'r' at 0x" % unittest.__file__))
 
     def test_lambda(self):
         self.assertTrue(repr(lambda x: x).startswith(
@@ -141,7 +141,7 @@ class ReprTests(unittest.TestCase):
         # XXX anonymous functions?  see func_repr
 
     def test_builtin_function(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         # Functions
         eq(repr(hash), '<built-in function hash>')
         # Methods
@@ -149,13 +149,13 @@ class ReprTests(unittest.TestCase):
             '<built-in method split of str object at 0x'))
 
     def test_xrange(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         eq(repr(xrange(1)), 'xrange(1)')
         eq(repr(xrange(1, 2)), 'xrange(1, 2)')
         eq(repr(xrange(1, 2, 3)), 'xrange(1, 4, 3)')
 
     def test_nesting(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         # everything is meant to give up after 6 levels.
         eq(r([[[[[[[]]]]]]]), "[[[[[[[]]]]]]]")
         eq(r([[[[[[[[]]]]]]]]), "[[[[[[[...]]]]]]]")
@@ -179,11 +179,18 @@ class ReprTests(unittest.TestCase):
         self.assertTrue(repr(x).startswith('<read-only buffer for 0x'))
 
     def test_cell(self):
-        # XXX Hmm? How to get at a cell object?
-        pass
+        def get_cell():
+            x = 42
+            def inner():
+                return x
+            return inner
+        x = get_cell().__closure__[0]
+        self.assertRegexpMatches(repr(x), r'<cell at 0x[0-9A-Fa-f]+: '
+                                          r'int object at 0x[0-9A-Fa-f]+>')
+        self.assertRegexpMatches(r(x), r'<cell at.*\.\.\..*>')
 
     def test_descriptors(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         # method descriptors
         eq(repr(dict.items), "<method 'items' of 'dict' objects>")
         # XXX member descriptors
@@ -244,7 +251,7 @@ class LongReprTest(unittest.TestCase):
         del sys.path[0]
 
     def test_module(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         touch(os.path.join(self.subpkgname, self.pkgname + os.extsep + 'py'))
         from areallylongpackageandmodulenametotestreprtruncation.areallylongpackageandmodulenametotestreprtruncation import areallylongpackageandmodulenametotestreprtruncation
         eq(repr(areallylongpackageandmodulenametotestreprtruncation),
@@ -252,7 +259,7 @@ class LongReprTest(unittest.TestCase):
         eq(repr(sys), "<module 'sys' (built-in)>")
 
     def test_type(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         touch(os.path.join(self.subpkgname, 'foo'+os.extsep+'py'), '''\
 class foo(object):
     pass
@@ -261,6 +268,7 @@ class foo(object):
         eq(repr(foo.foo),
                "<class '%s.foo'>" % foo.__name__)
 
+    @unittest.skip('need a suitable object')
     def test_object(self):
         # XXX Test the repr of a type with a really long tp_name but with no
         # tp_repr.  WIBNI we had ::Inline? :)
@@ -287,7 +295,7 @@ class baz:
             "<%s.baz instance at 0x" % baz.__name__))
 
     def test_method(self):
-        eq = self.assertEquals
+        eq = self.assertEqual
         touch(os.path.join(self.subpkgname, 'qux'+os.extsep+'py'), '''\
 class aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:
     def amethod(self): pass
@@ -302,6 +310,7 @@ class aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             '<bound method aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.amethod of <%s.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa instance at 0x' \
             % (qux.__name__,) ))
 
+    @unittest.skip('needs a built-in function with a really long name')
     def test_builtin_function(self):
         # XXX test built-in functions and methods with really long names
         pass

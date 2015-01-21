@@ -29,6 +29,7 @@ import urllib
 import BaseHTTPServer
 import SimpleHTTPServer
 import select
+import copy
 
 
 class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
@@ -83,9 +84,11 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         path begins with one of the strings in self.cgi_directories
         (and the next character is a '/' or the end of the string).
         """
-        splitpath = _url_collapse_path_split(self.path)
-        if splitpath[0] in self.cgi_directories:
-            self.cgi_info = splitpath
+        collapsed_path = _url_collapse_path(urllib.unquote(self.path))
+        dir_sep = collapsed_path.find('/', 1)
+        head, tail = collapsed_path[:dir_sep], collapsed_path[dir_sep+1:]
+        if head in self.cgi_directories:
+            self.cgi_info = head, tail
             return True
         return False
 
@@ -102,10 +105,9 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
     def run_cgi(self):
         """Execute a CGI script."""
-        path = self.path
         dir, rest = self.cgi_info
-
-        i = path.find('/', len(dir) + 1)
+        path = dir + '/' + rest
+        i = path.find('/', len(dir)+1)
         while i >= 0:
             nextdir = path[:i]
             nextrest = path[i+1:]
@@ -113,7 +115,7 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             scriptdir = self.translate_path(nextdir)
             if os.path.isdir(scriptdir):
                 dir, rest = nextdir, nextrest
-                i = path.find('/', len(dir) + 1)
+                i = path.find('/', len(dir)+1)
             else:
                 break
 
@@ -154,7 +156,7 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
         # Reference: http://hoohoo.ncsa.uiuc.edu/cgi/env.html
         # XXX Much of the following could be prepared ahead of time!
-        env = {}
+        env = copy.deepcopy(os.environ)
         env['SERVER_SOFTWARE'] = self.version_string()
         env['SERVER_NAME'] = self.server.server_name
         env['GATEWAY_INTERFACE'] = 'CGI/1.1'
@@ -216,7 +218,6 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
         for k in ('QUERY_STRING', 'REMOTE_HOST', 'CONTENT_LENGTH',
                   'HTTP_USER_AGENT', 'HTTP_COOKIE', 'HTTP_REFERER'):
             env.setdefault(k, "")
-        os.environ.update(env)
 
         self.send_response(200, "Script output follows")
 
@@ -248,7 +249,7 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
                     pass
                 os.dup2(self.rfile.fileno(), 0)
                 os.dup2(self.wfile.fileno(), 1)
-                os.execve(scriptfile, args, os.environ)
+                os.execve(scriptfile, args, env)
             except:
                 self.server.handle_error(self.request, self.client_address)
                 os._exit(127)
@@ -274,7 +275,8 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             p = subprocess.Popen(cmdline,
                                  stdin = subprocess.PIPE,
                                  stdout = subprocess.PIPE,
-                                 stderr = subprocess.PIPE
+                                 stderr = subprocess.PIPE,
+                                 env = env
                                 )
             if self.command.lower() == "post" and nbytes > 0:
                 data = self.rfile.read(nbytes)
@@ -288,6 +290,8 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
             self.wfile.write(stdout)
             if stderr:
                 self.log_error('%s', stderr)
+            p.stderr.close()
+            p.stdout.close()
             status = p.returncode
             if status:
                 self.log_error("CGI script exit status %#x", status)
@@ -295,44 +299,46 @@ class CGIHTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
                 self.log_message("CGI script exited OK")
 
 
-# TODO(gregory.p.smith): Move this into an appropriate library.
-def _url_collapse_path_split(path):
+def _url_collapse_path(path):
     """
     Given a URL path, remove extra '/'s and '.' path elements and collapse
-    any '..' references.
+    any '..' references and returns a colllapsed path.
 
     Implements something akin to RFC-2396 5.2 step 6 to parse relative paths.
+    The utility of this function is limited to is_cgi method and helps
+    preventing some security attacks.
 
     Returns: A tuple of (head, tail) where tail is everything after the final /
     and head is everything before it.  Head will always start with a '/' and,
     if it contains anything else, never have a trailing '/'.
 
     Raises: IndexError if too many '..' occur within the path.
+
     """
     # Similar to os.path.split(os.path.normpath(path)) but specific to URL
     # path semantics rather than local operating system semantics.
-    path_parts = []
-    for part in path.split('/'):
-        if part == '.':
-            path_parts.append('')
-        else:
-            path_parts.append(part)
-    # Filter out blank non trailing parts before consuming the '..'.
-    path_parts = [part for part in path_parts[:-1] if part] + path_parts[-1:]
+    path_parts = path.split('/')
+    head_parts = []
+    for part in path_parts[:-1]:
+        if part == '..':
+            head_parts.pop() # IndexError if more '..' than prior parts
+        elif part and part != '.':
+            head_parts.append( part )
     if path_parts:
         tail_part = path_parts.pop()
+        if tail_part:
+            if tail_part == '..':
+                head_parts.pop()
+                tail_part = ''
+            elif tail_part == '.':
+                tail_part = ''
     else:
         tail_part = ''
-    head_parts = []
-    for part in path_parts:
-        if part == '..':
-            head_parts.pop()
-        else:
-            head_parts.append(part)
-    if tail_part and tail_part == '..':
-        head_parts.pop()
-        tail_part = ''
-    return ('/' + '/'.join(head_parts), tail_part)
+
+    splitpath = ('/' + '/'.join(head_parts), tail_part)
+    collapsed_path = "/".join(splitpath)
+
+    return collapsed_path
 
 
 nobody = None

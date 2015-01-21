@@ -2,6 +2,13 @@
 
 #ifdef WITH_PYMALLOC
 
+#ifdef HAVE_MMAP
+ #include <sys/mman.h>
+ #ifdef MAP_ANONYMOUS
+  #define ARENAS_USE_MMAP
+ #endif
+#endif
+
 #ifdef WITH_VALGRIND
 #include <valgrind/valgrind.h>
 
@@ -75,7 +82,8 @@ static int running_on_valgrind = -1;
  * Allocation strategy abstract:
  *
  * For small requests, the allocator sub-allocates <Big> blocks of memory.
- * Requests greater than 256 bytes are routed to the system's allocator.
+ * Requests greater than SMALL_REQUEST_THRESHOLD bytes are routed to the
+ * system's allocator. 
  *
  * Small requests are grouped in size classes spaced 8 bytes apart, due
  * to the required valid alignment of the returned address. Requests of
@@ -107,10 +115,11 @@ static int running_on_valgrind = -1;
  *       57-64                   64                       7
  *       65-72                   72                       8
  *        ...                   ...                     ...
- *      241-248                 248                      30
- *      249-256                 256                      31
+ *      497-504                 504                      62
+ *      505-512                 512                      63 
  *
- *      0, 257 and up: routed to the underlying allocator.
+ *      0, SMALL_REQUEST_THRESHOLD + 1 and up: routed to the underlying
+ *      allocator.
  */
 
 /*==========================================================================*/
@@ -143,10 +152,13 @@ static int running_on_valgrind = -1;
  *      1) ALIGNMENT <= SMALL_REQUEST_THRESHOLD <= 256
  *      2) SMALL_REQUEST_THRESHOLD is evenly divisible by ALIGNMENT
  *
+ * Note: a size threshold of 512 guarantees that newly created dictionaries
+ * will be allocated from preallocated memory pools on 64-bit.
+ *
  * Although not required, for better performance and space efficiency,
  * it is recommended that SMALL_REQUEST_THRESHOLD is set to a power of 2.
  */
-#define SMALL_REQUEST_THRESHOLD 256
+#define SMALL_REQUEST_THRESHOLD 512 
 #define NB_SMALL_SIZE_CLASSES   (SMALL_REQUEST_THRESHOLD / ALIGNMENT)
 
 /*
@@ -174,15 +186,15 @@ static int running_on_valgrind = -1;
 /*
  * The allocator sub-allocates <Big> blocks of memory (called arenas) aligned
  * on a page boundary. This is a reserved virtual address space for the
- * current process (obtained through a malloc call). In no way this means
- * that the memory arenas will be used entirely. A malloc(<Big>) is usually
- * an address range reservation for <Big> bytes, unless all pages within this
- * space are referenced subsequently. So malloc'ing big blocks and not using
- * them does not mean "wasting memory". It's an addressable range wastage...
+ * current process (obtained through a malloc()/mmap() call). In no way this
+ * means that the memory arenas will be used entirely. A malloc(<Big>) is
+ * usually an address range reservation for <Big> bytes, unless all pages within
+ * this space are referenced subsequently. So malloc'ing big blocks and not
+ * using them does not mean "wasting memory". It's an addressable range
+ * wastage... 
  *
- * Therefore, allocating arenas with malloc is not optimal, because there is
- * some address space wastage, but this is the most portable way to request
- * memory from the system across various platforms.
+ * Arenas are allocated with mmap() on systems supporting anonymous memory
+ * mappings to reduce heap fragmentation.
  */
 #define ARENA_SIZE              (256 << 10)     /* 256KB */
 
@@ -249,7 +261,7 @@ typedef uchar block;
 /* Pool for small blocks. */
 struct pool_header {
     union { block *_padding;
-        uint count; } ref;              /* number of allocated blocks    */
+            uint count; } ref;          /* number of allocated blocks    */
     block *freeblock;                   /* pool's free list head         */
     struct pool_header *nextpool;       /* next pool of this size class  */
     struct pool_header *prevpool;       /* previous pool       ""        */
@@ -404,7 +416,7 @@ compensating for that a pool_header's nextpool and prevpool members
 immediately follow a pool_header's first two members:
 
     union { block *_padding;
-        uint count; } ref;
+            uint count; } ref;
     block *freeblock;
 
 each of which consume sizeof(block *) bytes.  So what usedpools[i+i] really
@@ -440,6 +452,9 @@ static poolp usedpools[2 * ((NB_SMALL_SIZE_CLASSES + 7) / 8) * 8] = {
     , PT(48), PT(49), PT(50), PT(51), PT(52), PT(53), PT(54), PT(55)
 #if NB_SMALL_SIZE_CLASSES > 56
     , PT(56), PT(57), PT(58), PT(59), PT(60), PT(61), PT(62), PT(63)
+#if NB_SMALL_SIZE_CLASSES > 64
+#error "NB_SMALL_SIZE_CLASSES should be less than 64"
+#endif /* NB_SMALL_SIZE_CLASSES > 64 */
 #endif /* NB_SMALL_SIZE_CLASSES > 56 */
 #endif /* NB_SMALL_SIZE_CLASSES > 48 */
 #endif /* NB_SMALL_SIZE_CLASSES > 40 */
@@ -525,6 +540,8 @@ new_arena(void)
 {
     struct arena_object* arenaobj;
     uint excess;        /* number of bytes above pool alignment */
+    void *address;
+    int err;
 
 #ifdef PYMALLOC_DEBUG
     if (Py_GETENV("PYTHONMALLOCSTATS"))
@@ -577,8 +594,15 @@ new_arena(void)
     arenaobj = unused_arena_objects;
     unused_arena_objects = arenaobj->nextarena;
     assert(arenaobj->address == 0);
-    arenaobj->address = (uptr)malloc(ARENA_SIZE);
-    if (arenaobj->address == 0) {
+#ifdef ARENAS_USE_MMAP
+    address = mmap(NULL, ARENA_SIZE, PROT_READ|PROT_WRITE,
+                   MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+    err = (address == MAP_FAILED);
+#else
+    address = malloc(ARENA_SIZE);
+    err = (address == 0);
+#endif    
+    if (err) {
         /* The allocation failed: return NULL after putting the
          * arenaobj back.
          */
@@ -586,6 +610,7 @@ new_arena(void)
         unused_arena_objects = arenaobj;
         return NULL;
     }
+    arenaobj->address = (uptr)address;
 
     ++narenas_currently_allocated;
 #ifdef PYMALLOC_DEBUG
@@ -682,11 +707,19 @@ that this test determines whether an arbitrary address is controlled by
 obmalloc in a small constant time, independent of the number of arenas
 obmalloc controls.  Since this test is needed at every entry point, it's
 extremely desirable that it be this fast.
+
+Since Py_ADDRESS_IN_RANGE may be reading from memory which was not allocated
+by Python, it is important that (POOL)->arenaindex is read only once, as
+another thread may be concurrently modifying the value without holding the
+GIL.  To accomplish this, the arenaindex_temp variable is used to store
+(POOL)->arenaindex for the duration of the Py_ADDRESS_IN_RANGE macro's
+execution.  The caller of the macro is responsible for declaring this
+variable.
 */
 #define Py_ADDRESS_IN_RANGE(P, POOL)                    \
-    ((POOL)->arenaindex < maxarenas &&                  \
-     (uptr)(P) - arenas[(POOL)->arenaindex].address < (uptr)ARENA_SIZE && \
-     arenas[(POOL)->arenaindex].address != 0)
+    ((arenaindex_temp = (POOL)->arenaindex) < maxarenas &&              \
+     (uptr)(P) - arenas[arenaindex_temp].address < (uptr)ARENA_SIZE && \
+     arenas[arenaindex_temp].address != 0)
 
 
 /* This is only useful when running memory debuggers such as
@@ -709,7 +742,7 @@ extremely desirable that it be this fast.
 #undef Py_ADDRESS_IN_RANGE
 
 #if defined(__GNUC__) && ((__GNUC__ == 3) && (__GNUC_MINOR__ >= 1) || \
-              (__GNUC__ >= 4))
+                          (__GNUC__ >= 4))
 #define Py_NO_INLINE __attribute__((__noinline__))
 #else
 #define Py_NO_INLINE
@@ -945,6 +978,9 @@ PyObject_Free(void *p)
     block *lastfree;
     poolp next, prev;
     uint size;
+#ifndef Py_USING_MEMORY_DEBUGGER
+    uint arenaindex_temp;
+#endif
 
     if (p == NULL)      /* free(NULL) has no effect */
         return;
@@ -1043,7 +1079,11 @@ PyObject_Free(void *p)
                 unused_arena_objects = ao;
 
                 /* Free the entire arena. */
+#ifdef ARENAS_USE_MMAP
+                munmap((void *)ao->address, ARENA_SIZE);
+#else
                 free((void *)ao->address);
+#endif
                 ao->address = 0;                        /* mark unassociated */
                 --narenas_currently_allocated;
 
@@ -1167,6 +1207,9 @@ PyObject_Realloc(void *p, size_t nbytes)
     void *bp;
     poolp pool;
     size_t size;
+#ifndef Py_USING_MEMORY_DEBUGGER
+    uint arenaindex_temp;
+#endif
 
     if (p == NULL)
         return PyObject_Malloc(nbytes);
@@ -1514,7 +1557,7 @@ _PyObject_DebugReallocApi(char api, void *p, size_t nbytes)
     if (nbytes > original_nbytes) {
         /* growing:  mark new extra memory clean */
         memset(q + original_nbytes, CLEANBYTE,
-            nbytes - original_nbytes);
+               nbytes - original_nbytes);
     }
 
     return q;
@@ -1641,11 +1684,11 @@ _PyObject_DebugDumpAddress(const void *p)
         fputs("FORBIDDENBYTE, as expected.\n", stderr);
     else {
         fprintf(stderr, "not all FORBIDDENBYTE (0x%02x):\n",
-            FORBIDDENBYTE);
+                FORBIDDENBYTE);
         for (i = 0; i < SST; ++i) {
             const uchar byte = tail[i];
             fprintf(stderr, "        at tail+%d: 0x%02x",
-                i, byte);
+                    i, byte);
             if (byte != FORBIDDENBYTE)
                 fputs(" *** OUCH", stderr);
             fputc('\n', stderr);
@@ -1699,7 +1742,7 @@ printone(const char* msg, size_t value)
     k = 3;
     do {
         size_t nextvalue = value / 10;
-        uint digit = (uint)(value - nextvalue * 10);
+        unsigned int digit = (unsigned int)(value - nextvalue * 10);
         value = nextvalue;
         buf[i--] = (char)(digit + '0');
         --k;
@@ -1751,7 +1794,7 @@ _PyObject_DebugMallocStats(void)
     char buf[128];
 
     fprintf(stderr, "Small block threshold = %d, in %u size classes.\n",
-        SMALL_REQUEST_THRESHOLD, numclasses);
+            SMALL_REQUEST_THRESHOLD, numclasses);
 
     for (i = 0; i < numclasses; ++i)
         numpools[i] = numblocks[i] = numfreeblocks[i] = 0;
@@ -1807,7 +1850,7 @@ _PyObject_DebugMallocStats(void)
     fputc('\n', stderr);
     fputs("class   size   num pools   blocks in use  avail blocks\n"
           "-----   ----   ---------   -------------  ------------\n",
-        stderr);
+          stderr);
 
     for (i = 0; i < numclasses; ++i) {
         size_t p = numpools[i];
@@ -1822,7 +1865,7 @@ _PyObject_DebugMallocStats(void)
                         "%11" PY_FORMAT_SIZE_T "u "
                         "%15" PY_FORMAT_SIZE_T "u "
                         "%13" PY_FORMAT_SIZE_T "u\n",
-            i, size, p, b, f);
+                i, size, p, b, f);
         allocated_bytes += b * size;
         available_bytes += f * size;
         pool_header_bytes += p * POOL_OVERHEAD;
@@ -1865,8 +1908,10 @@ _PyObject_DebugMallocStats(void)
 int
 Py_ADDRESS_IN_RANGE(void *P, poolp pool)
 {
-    return pool->arenaindex < maxarenas &&
-           (uptr)P - arenas[pool->arenaindex].address < (uptr)ARENA_SIZE &&
-           arenas[pool->arenaindex].address != 0;
+    uint arenaindex_temp = pool->arenaindex;
+
+    return arenaindex_temp < maxarenas &&
+           (uptr)P - arenas[arenaindex_temp].address < (uptr)ARENA_SIZE &&
+           arenas[arenaindex_temp].address != 0;
 }
 #endif

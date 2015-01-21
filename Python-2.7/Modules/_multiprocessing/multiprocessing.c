@@ -8,7 +8,7 @@
 
 #include "multiprocessing.h"
 
-#ifdef SCM_RIGHTS
+#if (defined(CMSG_LEN) && defined(SCM_RIGHTS))
     #define HAVE_FD_TRANSFER 1
 #else
     #define HAVE_FD_TRANSFER 0
@@ -63,7 +63,7 @@ mp_SetError(PyObject *Type, int num)
         break;
     default:
         PyErr_Format(PyExc_RuntimeError,
-                     "unkown error number %d", num);
+                     "unknown error number %d", num);
     }
     return NULL;
 }
@@ -97,32 +97,38 @@ ProcessingCtrlHandler(DWORD dwCtrlType)
 /* Functions for transferring file descriptors between processes.
    Reimplements some of the functionality of the fdcred
    module at http://www.mca-ltd.com/resources/fdcred_1.tgz. */
+/* Based in http://resin.csoft.net/cgi-bin/man.cgi?section=3&topic=CMSG_DATA */
 
 static PyObject *
 multiprocessing_sendfd(PyObject *self, PyObject *args)
 {
     int conn, fd, res;
-    char dummy_char;
-    char buf[CMSG_SPACE(sizeof(int))];
-    struct msghdr msg = {0};
     struct iovec dummy_iov;
+    char dummy_char;
+    struct msghdr msg;
     struct cmsghdr *cmsg;
+    union {
+        struct cmsghdr hdr;
+        unsigned char buf[CMSG_SPACE(sizeof(int))];
+    } cmsgbuf;
 
     if (!PyArg_ParseTuple(args, "ii", &conn, &fd))
         return NULL;
 
     dummy_iov.iov_base = &dummy_char;
     dummy_iov.iov_len = 1;
-    msg.msg_control = buf;
-    msg.msg_controllen = sizeof(buf);
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_control = &cmsgbuf.buf;
+    msg.msg_controllen = sizeof(cmsgbuf.buf);
     msg.msg_iov = &dummy_iov;
     msg.msg_iovlen = 1;
+
     cmsg = CMSG_FIRSTHDR(&msg);
+    cmsg->cmsg_len = CMSG_LEN(sizeof(int));
     cmsg->cmsg_level = SOL_SOCKET;
     cmsg->cmsg_type = SCM_RIGHTS;
-    cmsg->cmsg_len = CMSG_LEN(sizeof(int));
-    msg.msg_controllen = cmsg->cmsg_len;
-    *(int*)CMSG_DATA(cmsg) = fd;
+    * (int *) CMSG_DATA(cmsg) = fd;
 
     Py_BEGIN_ALLOW_THREADS
     res = sendmsg(conn, &msg, 0);
@@ -138,20 +144,26 @@ multiprocessing_recvfd(PyObject *self, PyObject *args)
 {
     int conn, fd, res;
     char dummy_char;
-    char buf[CMSG_SPACE(sizeof(int))];
-    struct msghdr msg = {0};
     struct iovec dummy_iov;
+    struct msghdr msg = {0};
     struct cmsghdr *cmsg;
+    union {
+        struct cmsghdr hdr;
+        unsigned char buf[CMSG_SPACE(sizeof(int))];
+    } cmsgbuf;
 
     if (!PyArg_ParseTuple(args, "i", &conn))
         return NULL;
 
     dummy_iov.iov_base = &dummy_char;
     dummy_iov.iov_len = 1;
-    msg.msg_control = buf;
-    msg.msg_controllen = sizeof(buf);
+
+    memset(&msg, 0, sizeof(msg));
+    msg.msg_control = &cmsgbuf.buf;
+    msg.msg_controllen = sizeof(cmsgbuf.buf);
     msg.msg_iov = &dummy_iov;
     msg.msg_iovlen = 1;
+
     cmsg = CMSG_FIRSTHDR(&msg);
     cmsg->cmsg_level = SOL_SOCKET;
     cmsg->cmsg_type = SCM_RIGHTS;
@@ -165,7 +177,18 @@ multiprocessing_recvfd(PyObject *self, PyObject *args)
     if (res < 0)
         return PyErr_SetFromErrno(PyExc_OSError);
 
-    fd = *(int*)CMSG_DATA(cmsg);
+    if (msg.msg_controllen < CMSG_LEN(sizeof(int)) ||
+        (cmsg = CMSG_FIRSTHDR(&msg)) == NULL ||
+        cmsg->cmsg_level != SOL_SOCKET ||
+        cmsg->cmsg_type != SCM_RIGHTS ||
+        cmsg->cmsg_len < CMSG_LEN(sizeof(int))) {
+        /* If at least one control message is present, there should be
+           no room for any further data in the buffer. */
+        PyErr_SetString(PyExc_RuntimeError, "No file descriptor received");
+        return NULL;
+    }
+
+    fd = * (int *) CMSG_DATA(cmsg);
     return Py_BuildValue("i", fd);
 }
 
@@ -256,8 +279,19 @@ init_multiprocessing(void)
     if (PyType_Ready(&SemLockType) < 0)
         return;
     Py_INCREF(&SemLockType);
-    PyDict_SetItemString(SemLockType.tp_dict, "SEM_VALUE_MAX",
-                         Py_BuildValue("i", SEM_VALUE_MAX));
+    {
+        PyObject *py_sem_value_max;
+        /* Some systems define SEM_VALUE_MAX as an unsigned value that
+         * causes it to be negative when used as an int (NetBSD). */
+        if ((int)(SEM_VALUE_MAX) < 0)
+            py_sem_value_max = PyLong_FromLong(INT_MAX);
+        else
+            py_sem_value_max = PyLong_FromLong(SEM_VALUE_MAX);
+        if (py_sem_value_max == NULL)
+            return;
+        PyDict_SetItemString(SemLockType.tp_dict, "SEM_VALUE_MAX",
+                             py_sem_value_max);
+    }
     PyModule_AddObject(module, "SemLock", (PyObject*)&SemLockType);
 #endif
 

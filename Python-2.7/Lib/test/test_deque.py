@@ -6,6 +6,7 @@ import weakref
 import copy
 import cPickle as pickle
 import random
+import struct
 
 BIG = 100000
 
@@ -137,6 +138,15 @@ class TestBasic(unittest.TestCase):
         m.d = d
         self.assertRaises(RuntimeError, d.count, 3)
 
+        # test issue11004
+        # block advance failed after rotation aligned elements on right side of block
+        d = deque([None]*16)
+        for i in range(len(d)):
+            d.rotate(-1)
+        d.rotate(1)
+        self.assertEqual(d.count(1), 0)
+        self.assertEqual(d.count(None), 16)
+
     def test_comparisons(self):
         d = deque('xabc'); d.popleft()
         for e in [d, deque('abc'), deque('ab'), deque(), list(d)]:
@@ -234,7 +244,7 @@ class TestBasic(unittest.TestCase):
             d = deque(data[:i])
             r = d.reverse()
             self.assertEqual(list(d), list(reversed(data[:i])))
-            self.assert_(r is None)
+            self.assertIs(r, None)
             d.reverse()
             self.assertEqual(list(d), data[:i])
         self.assertRaises(TypeError, d.reverse, 1)          # Arity is zero
@@ -507,6 +517,21 @@ class TestBasic(unittest.TestCase):
             del obj, container
             gc.collect()
             self.assertTrue(ref() is None, "Cycle was not collected")
+
+    check_sizeof = test_support.check_sizeof
+
+    @test_support.cpython_only
+    def test_sizeof(self):
+        BLOCKLEN = 62
+        basesize = test_support.calcobjsize('2P4PlP')
+        blocksize = struct.calcsize('2P%dP' % BLOCKLEN)
+        self.assertEqual(object.__sizeof__(deque()), basesize)
+        check = self.check_sizeof
+        check(deque(), basesize + blocksize)
+        check(deque('a'), basesize + blocksize)
+        check(deque('a' * (BLOCKLEN // 2)), basesize + blocksize)
+        check(deque('a' * (BLOCKLEN // 2 + 1)), basesize + 2 * blocksize)
+        check(deque('a' * (42 * BLOCKLEN)), basesize + 43 * blocksize)
 
 class TestVariousIteratorArgs(unittest.TestCase):
 

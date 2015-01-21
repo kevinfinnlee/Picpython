@@ -8,6 +8,11 @@ import StringIO
 import urllib2
 from urllib2 import Request, OpenerDirector
 
+try:
+    import ssl
+except ImportError:
+    ssl = None
+
 # XXX
 # Request
 # CacheFTPHandler (hard to write)
@@ -45,7 +50,15 @@ class TrivialTests(unittest.TestCase):
                  ('a, b, "c", "d", "e,f", g, h', ['a', 'b', '"c"', '"d"', '"e,f"', 'g', 'h']),
                  ('a="b\\"c", d="e\\,f", g="h\\\\i"', ['a="b"c"', 'd="e,f"', 'g="h\\i"'])]
         for string, list in tests:
-            self.assertEquals(urllib2.parse_http_list(string), list)
+            self.assertEqual(urllib2.parse_http_list(string), list)
+
+    @unittest.skipUnless(ssl, "ssl module required")
+    def test_cafile_and_context(self):
+        context = ssl.create_default_context()
+        with self.assertRaises(ValueError):
+            urllib2.urlopen(
+                "https://localhost", cafile="/nonexistent/path", context=context
+            )
 
 
 def test_request_headers_dict():
@@ -293,6 +306,7 @@ class MockHTTPClass:
             self._tunnel_headers = headers
         else:
             self._tunnel_headers.clear()
+
     def request(self, method, url, body=None, headers=None):
         self.method = method
         self.selector = url
@@ -304,8 +318,12 @@ class MockHTTPClass:
         if self.raise_on_endheaders:
             import socket
             raise socket.error()
+
     def getresponse(self):
         return MockHTTPResponse(MockFile(), {}, 200, "OK")
+
+    def close(self):
+        pass
 
 class MockHandler:
     # useful for testing handler machinery
@@ -586,8 +604,8 @@ class OpenerDirectorTests(unittest.TestCase):
                 self.assertIsInstance(args[0], Request)
                 # response from opener.open is None, because there's no
                 # handler that defines http_open to handle it
-                self.assertTrue(args[1] is None or
-                             isinstance(args[1], MockResponse))
+                if args[1] is not None:
+                    self.assertIsInstance(args[1], MockResponse)
 
 
 def sanepathname2url(path):
@@ -606,6 +624,7 @@ class HandlerTests(unittest.TestCase):
             def retrfile(self, filename, filetype):
                 self.filename, self.filetype = filename, filetype
                 return StringIO.StringIO(self.data), len(self.data)
+            def close(self): pass
 
         class NullFTPHandler(urllib2.FTPHandler):
             def __init__(self, data): self.data = data
@@ -622,22 +641,32 @@ class HandlerTests(unittest.TestCase):
         h = NullFTPHandler(data)
         o = h.parent = MockOpener()
 
-        for url, host, port, type_, dirs, filename, mimetype in [
+        for url, host, port, user, passwd, type_, dirs, filename, mimetype in [
             ("ftp://localhost/foo/bar/baz.html",
-             "localhost", ftplib.FTP_PORT, "I",
+             "localhost", ftplib.FTP_PORT, "", "", "I",
+             ["foo", "bar"], "baz.html", "text/html"),
+            ("ftp://parrot@localhost/foo/bar/baz.html",
+             "localhost", ftplib.FTP_PORT, "parrot", "", "I",
+             ["foo", "bar"], "baz.html", "text/html"),
+            ("ftp://%25parrot@localhost/foo/bar/baz.html",
+             "localhost", ftplib.FTP_PORT, "%parrot", "", "I",
+             ["foo", "bar"], "baz.html", "text/html"),
+            ("ftp://%2542parrot@localhost/foo/bar/baz.html",
+             "localhost", ftplib.FTP_PORT, "%42parrot", "", "I",
              ["foo", "bar"], "baz.html", "text/html"),
             ("ftp://localhost:80/foo/bar/",
-             "localhost", 80, "D",
+             "localhost", 80, "", "", "D",
              ["foo", "bar"], "", None),
             ("ftp://localhost/baz.gif;type=a",
-             "localhost", ftplib.FTP_PORT, "A",
+             "localhost", ftplib.FTP_PORT, "", "", "A",
              [], "baz.gif", None),  # XXX really this should guess image/gif
             ]:
             req = Request(url)
             req.timeout = None
             r = h.ftp_open(req)
             # ftp authentication not yet implemented by FTPHandler
-            self.assertTrue(h.user == h.passwd == "")
+            self.assertEqual(h.user, user)
+            self.assertEqual(h.passwd, passwd)
             self.assertEqual(h.host, socket.gethostbyname(host))
             self.assertEqual(h.port, port)
             self.assertEqual(h.dirs, dirs)
@@ -726,6 +755,8 @@ class HandlerTests(unittest.TestCase):
             ("file://ftp.example.com///foo.txt", False),
 # XXXX bug: fails with OSError, should be URLError
             ("file://ftp.example.com/foo.txt", False),
+            ("file://somehost//foo/something.txt", True),
+            ("file://localhost//foo/something.txt", False),
             ]:
             req = Request(url)
             try:
@@ -736,6 +767,7 @@ class HandlerTests(unittest.TestCase):
             else:
                 self.assertTrue(o.req is req)
                 self.assertEqual(req.type, "ftp")
+            self.assertEqual(req.type == "ftp", ftp)
 
     def test_http(self):
 
@@ -825,6 +857,25 @@ class HandlerTests(unittest.TestCase):
             p_ds_req = h.do_request_(ds_req)
             self.assertEqual(p_ds_req.unredirected_hdrs["Host"],"example.com")
 
+    def test_fixpath_in_weirdurls(self):
+        # Issue4493: urllib2 to supply '/' when to urls where path does not
+        # start with'/'
+
+        h = urllib2.AbstractHTTPHandler()
+        o = h.parent = MockOpener()
+
+        weird_url = 'http://www.python.org?getspam'
+        req = Request(weird_url)
+        newreq = h.do_request_(req)
+        self.assertEqual(newreq.get_host(),'www.python.org')
+        self.assertEqual(newreq.get_selector(),'/?getspam')
+
+        url_without_path = 'http://www.python.org'
+        req = Request(url_without_path)
+        newreq = h.do_request_(req)
+        self.assertEqual(newreq.get_host(),'www.python.org')
+        self.assertEqual(newreq.get_selector(),'')
+
     def test_errors(self):
         h = urllib2.HTTPErrorProcessor()
         o = h.parent = MockOpener()
@@ -859,7 +910,7 @@ class HandlerTests(unittest.TestCase):
         r = MockResponse(200, "OK", {}, "")
         newreq = h.http_request(req)
         self.assertTrue(cj.ach_req is req is newreq)
-        self.assertEquals(req.get_origin_req_host(), "example.com")
+        self.assertEqual(req.get_origin_req_host(), "example.com")
         self.assertTrue(not req.is_unverifiable())
         newr = h.http_response(req, r)
         self.assertTrue(cj.ec_req is req)
@@ -886,7 +937,8 @@ class HandlerTests(unittest.TestCase):
                            MockHeaders({"location": to_url}))
                 except urllib2.HTTPError:
                     # 307 in response to POST requires user OK
-                    self.assertTrue(code == 307 and data is not None)
+                    self.assertEqual(code, 307)
+                    self.assertIsNotNone(data)
                 self.assertEqual(o.req.get_full_url(), to_url)
                 try:
                     self.assertEqual(o.req.get_method(), "GET")
@@ -937,6 +989,28 @@ class HandlerTests(unittest.TestCase):
             self.assertEqual(count,
                              urllib2.HTTPRedirectHandler.max_redirections)
 
+    def test_invalid_redirect(self):
+        from_url = "http://example.com/a.html"
+        valid_schemes = ['http', 'https', 'ftp']
+        invalid_schemes = ['file', 'imap', 'ldap']
+        schemeless_url = "example.com/b.html"
+        h = urllib2.HTTPRedirectHandler()
+        o = h.parent = MockOpener()
+        req = Request(from_url)
+        req.timeout = socket._GLOBAL_DEFAULT_TIMEOUT
+
+        for scheme in invalid_schemes:
+            invalid_url = scheme + '://' + schemeless_url
+            self.assertRaises(urllib2.HTTPError, h.http_error_302,
+                              req, MockFile(), 302, "Security Loophole",
+                              MockHeaders({"location": invalid_url}))
+
+        for scheme in valid_schemes:
+            valid_url = scheme + '://' + schemeless_url
+            h.http_error_302(req, MockFile(), 302, "That's fine",
+                MockHeaders({"location": valid_url}))
+            self.assertEqual(o.req.get_full_url(), valid_url)
+
     def test_cookie_redirect(self):
         # cookies shouldn't leak into redirected requests
         from cookielib import CookieJar
@@ -952,6 +1026,15 @@ class HandlerTests(unittest.TestCase):
         o = build_test_opener(hh, hdeh, hrh, cp)
         o.open("http://www.example.com/")
         self.assertTrue(not hh.req.has_header("Cookie"))
+
+    def test_redirect_fragment(self):
+        redirected_url = 'http://www.example.com/index.html#OK\r\n\r\n'
+        hh = MockHTTPHandler(302, 'Location: ' + redirected_url)
+        hdeh = urllib2.HTTPDefaultErrorHandler()
+        hrh = urllib2.HTTPRedirectHandler()
+        o = build_test_opener(hh, hdeh, hrh)
+        fp = o.open('http://www.example.com')
+        self.assertEqual(fp.geturl(), redirected_url.strip())
 
     def test_proxy(self):
         o = OpenerDirector()
@@ -1037,11 +1120,29 @@ class HandlerTests(unittest.TestCase):
         self._test_basic_auth(opener, auth_handler, "Authorization",
                               realm, http_handler, password_manager,
                               "http://acme.example.com/protected",
-                              "http://acme.example.com/protected",
-                              )
+                              "http://acme.example.com/protected"
+                             )
 
     def test_basic_auth_with_single_quoted_realm(self):
         self.test_basic_auth(quote_char="'")
+
+    def test_basic_auth_with_unquoted_realm(self):
+        opener = OpenerDirector()
+        password_manager = MockPasswordManager()
+        auth_handler = urllib2.HTTPBasicAuthHandler(password_manager)
+        realm = "ACME Widget Store"
+        http_handler = MockHTTPHandler(
+            401, 'WWW-Authenticate: Basic realm=%s\r\n\r\n' % realm)
+        opener.add_handler(auth_handler)
+        opener.add_handler(http_handler)
+        msg = "Basic Auth Realm was unquoted"
+        with test_support.check_warnings((msg, UserWarning)):
+            self._test_basic_auth(opener, auth_handler, "Authorization",
+                                  realm, http_handler, password_manager,
+                                  "http://acme.example.com/protected",
+                                  "http://acme.example.com/protected"
+                                 )
+
 
     def test_proxy_basic_auth(self):
         opener = OpenerDirector()
@@ -1061,7 +1162,7 @@ class HandlerTests(unittest.TestCase):
                               )
 
     def test_basic_and_digest_auth_handlers(self):
-        # HTTPDigestAuthHandler threw an exception if it couldn't handle a 40*
+        # HTTPDigestAuthHandler raised an exception if it couldn't handle a 40*
         # response (http://python.org/sf/1479302), where it should instead
         # return None to allow another handler (especially
         # HTTPBasicAuthHandler) to handle the response.
@@ -1234,6 +1335,47 @@ class RequestTests(unittest.TestCase):
         self.assertEqual("www.python.org", self.get.get_origin_req_host())
         self.assertEqual("www.perl.org", self.get.get_host())
 
+    def test_wrapped_url(self):
+        req = Request("<URL:http://www.python.org>")
+        self.assertEqual("www.python.org", req.get_host())
+
+    def test_url_fragment(self):
+        req = Request("http://www.python.org/?qs=query#fragment=true")
+        self.assertEqual("/?qs=query", req.get_selector())
+        req = Request("http://www.python.org/#fun=true")
+        self.assertEqual("/", req.get_selector())
+
+        # Issue 11703: geturl() omits fragment in the original URL.
+        url = 'http://docs.python.org/library/urllib2.html#OK'
+        req = Request(url)
+        self.assertEqual(req.get_full_url(), url)
+
+    def test_HTTPError_interface(self):
+        """
+        Issue 13211 reveals that HTTPError didn't implement the URLError
+        interface even though HTTPError is a subclass of URLError.
+
+        >>> err = urllib2.HTTPError(msg='something bad happened', url=None, code=None, hdrs=None, fp=None)
+        >>> assert hasattr(err, 'reason')
+        >>> err.reason
+        'something bad happened'
+        """
+
+    def test_HTTPError_interface_call(self):
+        """
+        Issue 15701= - HTTPError interface has info method available from URLError.
+        """
+        err = urllib2.HTTPError(msg='something bad happened', url=None,
+                                code=None, hdrs='Content-Length:42', fp=None)
+        self.assertTrue(hasattr(err, 'reason'))
+        assert hasattr(err, 'reason')
+        assert hasattr(err, 'info')
+        assert callable(err.info)
+        try:
+            err.info()
+        except AttributeError:
+            self.fail("err.info() failed")
+        self.assertEqual(err.info(), "Content-Length:42")
 
 def test_main(verbose=None):
     from test import test_urllib2

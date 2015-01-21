@@ -585,7 +585,17 @@ convertsimple(PyObject *arg, const char **p_format, va_list *p_va, int flags,
 #define FETCH_SIZE      int *q=NULL;Py_ssize_t *q2=NULL;\
     if (flags & FLAG_SIZE_T) q2=va_arg(*p_va, Py_ssize_t*); \
     else q=va_arg(*p_va, int*);
-#define STORE_SIZE(s)   if (flags & FLAG_SIZE_T) *q2=s; else *q=s;
+#define STORE_SIZE(s)   \
+    if (flags & FLAG_SIZE_T) \
+        *q2=s; \
+    else { \
+        if (INT_MAX < s) { \
+            PyErr_SetString(PyExc_OverflowError, \
+                "size does not fit in an int"); \
+            return converterr("", arg, msgbuf, bufsize); \
+        } \
+        *q=s; \
+    }
 #define BUFFER_LEN      ((flags & FLAG_SIZE_T) ? *q2:*q)
 
     const char *format = *p_format;
@@ -984,10 +994,11 @@ convertsimple(PyObject *arg, const char **p_format, va_list *p_va, int flags,
             if (*format == '#') {
                 FETCH_SIZE;
                 assert(0); /* XXX redundant with if-case */
-                if (arg == Py_None)
-                    *q = 0;
-                else
-                    *q = PyString_Size(arg);
+                if (arg == Py_None) {
+                    STORE_SIZE(0);
+                } else {
+                    STORE_SIZE(PyString_Size(arg));
+                }
                 format++;
             }
             else if (*p != NULL &&
@@ -1399,7 +1410,7 @@ getbuffer(PyObject *arg, Py_buffer *view, char **errmsg)
         *errmsg = "convertible to a buffer";
         return count;
     }
-    PyBuffer_FillInfo(view, NULL, buf, count, 1, 0);
+    PyBuffer_FillInfo(view, arg, buf, count, 1, 0);
     return 0;
 }
 
@@ -1826,6 +1837,7 @@ PyArg_UnpackTuple(PyObject *args, const char *name, Py_ssize_t min, Py_ssize_t m
     assert(min >= 0);
     assert(min <= max);
     if (!PyTuple_Check(args)) {
+        va_end(vargs);
         PyErr_SetString(PyExc_SystemError,
             "PyArg_UnpackTuple() argument list is not a tuple");
         return 0;

@@ -12,11 +12,11 @@
    from operator import itemgetter
 
 
-The :mod:`operator` module exports a set of functions implemented in C
-corresponding to the intrinsic operators of Python.  For example,
-``operator.add(x, y)`` is equivalent to the expression ``x+y``.  The function
-names are those used for special class methods; variants without leading and
-trailing ``__`` are also provided for convenience.
+The :mod:`operator` module exports a set of efficient functions corresponding to
+the intrinsic operators of Python.  For example, ``operator.add(x, y)`` is
+equivalent to the expression ``x+y``.  The function names are those used for
+special class methods; variants without leading and trailing ``__`` are also
+provided for convenience.
 
 The functions fall into categories that perform object comparisons, logical
 operations, mathematical operations, sequence operations, and abstract type
@@ -490,16 +490,38 @@ lookups.  These are useful for making fast field extractors as arguments for
 expect a function argument.
 
 
-.. function:: attrgetter(attr[, args...])
+.. function:: attrgetter(attr)
+              attrgetter(*attrs)
 
-   Return a callable object that fetches *attr* from its operand. If more than one
-   attribute is requested, returns a tuple of attributes. After,
-   ``f = attrgetter('name')``, the call ``f(b)`` returns ``b.name``.  After,
-   ``f = attrgetter('name', 'date')``, the call ``f(b)`` returns ``(b.name,
-   b.date)``.
+   Return a callable object that fetches *attr* from its operand.
+   If more than one attribute is requested, returns a tuple of attributes.
+   The attribute names can also contain dots. For example:
 
-   The attribute names can also contain dots; after ``f = attrgetter('date.month')``,
-   the call ``f(b)`` returns ``b.date.month``.
+   * After ``f = attrgetter('name')``, the call ``f(b)`` returns ``b.name``.
+
+   * After ``f = attrgetter('name', 'date')``, the call ``f(b)`` returns
+     ``(b.name, b.date)``.
+
+   * After ``f = attrgetter('name.first', 'name.last')``, the call ``f(b)``
+     returns ``(b.name.first, b.name.last)``.
+
+   Equivalent to::
+
+      def attrgetter(*items):
+          if len(items) == 1:
+              attr = items[0]
+              def g(obj):
+                  return resolve_attr(obj, attr)
+          else:
+              def g(obj):
+                  return tuple(resolve_attr(obj, attr) for attr in items)
+          return g
+
+      def resolve_attr(obj, attr):
+          for name in attr.split("."):
+              obj = getattr(obj, name)
+          return obj
+
 
    .. versionadded:: 2.4
 
@@ -510,21 +532,29 @@ expect a function argument.
       Added support for dotted attributes.
 
 
-.. function:: itemgetter(item[, args...])
+.. function:: itemgetter(item)
+              itemgetter(*items)
 
    Return a callable object that fetches *item* from its operand using the
    operand's :meth:`__getitem__` method.  If multiple items are specified,
-   returns a tuple of lookup values.  Equivalent to::
+   returns a tuple of lookup values.  For example:
 
-        def itemgetter(*items):
-            if len(items) == 1:
-                item = items[0]
-                def g(obj):
-                    return obj[item]
-            else:
-                def g(obj):
-                    return tuple(obj[item] for item in items)
-            return g
+   * After ``f = itemgetter(2)``, the call ``f(r)`` returns ``r[2]``.
+
+   * After ``g = itemgetter(2, 5, 3)``, the call ``g(r)`` returns
+     ``(r[2], r[5], r[3])``.
+
+   Equivalent to::
+
+      def itemgetter(*items):
+          if len(items) == 1:
+              item = items[0]
+              def g(obj):
+                  return obj[item]
+          else:
+              def g(obj):
+                  return tuple(obj[item] for item in items)
+          return g
 
    The items can be any type accepted by the operand's :meth:`__getitem__`
    method.  Dictionaries accept any hashable value.  Lists, tuples, and
@@ -545,21 +575,31 @@ expect a function argument.
    Example of using :func:`itemgetter` to retrieve specific fields from a
    tuple record:
 
-       >>> inventory = [('apple', 3), ('banana', 2), ('pear', 5), ('orange', 1)]
-       >>> getcount = itemgetter(1)
-       >>> map(getcount, inventory)
-       [3, 2, 5, 1]
-       >>> sorted(inventory, key=getcount)
-       [('orange', 1), ('banana', 2), ('apple', 3), ('pear', 5)]
+      >>> inventory = [('apple', 3), ('banana', 2), ('pear', 5), ('orange', 1)]
+      >>> getcount = itemgetter(1)
+      >>> map(getcount, inventory)
+      [3, 2, 5, 1]
+      >>> sorted(inventory, key=getcount)
+      [('orange', 1), ('banana', 2), ('apple', 3), ('pear', 5)]
 
 
 .. function:: methodcaller(name[, args...])
 
    Return a callable object that calls the method *name* on its operand.  If
    additional arguments and/or keyword arguments are given, they will be given
-   to the method as well.  After ``f = methodcaller('name')``, the call ``f(b)``
-   returns ``b.name()``.  After ``f = methodcaller('name', 'foo', bar=1)``, the
-   call ``f(b)`` returns ``b.name('foo', bar=1)``.
+   to the method as well.  For example:
+
+   * After ``f = methodcaller('name')``, the call ``f(b)`` returns ``b.name()``.
+
+   * After ``f = methodcaller('name', 'foo', bar=1)``, the call ``f(b)``
+     returns ``b.name('foo', bar=1)``.
+
+   Equivalent to::
+
+      def methodcaller(name, *args, **kwargs):
+          def caller(obj):
+              return getattr(obj, name)(*args, **kwargs)
+          return caller
 
    .. versionadded:: 2.6
 

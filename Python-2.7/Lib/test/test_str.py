@@ -1,4 +1,4 @@
-
+import unittest
 import struct
 import sys
 from test import test_support, string_tests
@@ -34,6 +34,18 @@ class StrTest(
     def test_formatting(self):
         string_tests.MixinStrUnicodeUserStringTest.test_formatting(self)
         self.assertRaises(OverflowError, '%c'.__mod__, 0x1234)
+
+    @test_support.cpython_only
+    def test_formatting_huge_precision(self):
+        from _testcapi import INT_MAX
+        format_string = "%.{}f".format(INT_MAX + 1)
+        with self.assertRaises(ValueError):
+            result = format_string % 2.34
+
+    def test_formatting_huge_width(self):
+        format_string = "%{}f".format(sys.maxsize + 1)
+        with self.assertRaises(ValueError):
+            result = format_string % 2.34
 
     def test_conversion(self):
         # Make sure __str__() behaves properly
@@ -98,12 +110,12 @@ class StrTest(
         self.assertEqual(str(Foo9("foo")), "string")
         self.assertEqual(unicode(Foo9("foo")), u"not unicode")
 
+    # This test only affects 32-bit platforms because expandtabs can only take
+    # an int as the max value, not a 64-bit C long.  If expandtabs is changed
+    # to take a 64-bit long, this test should apply to all platforms.
+    @unittest.skipIf(sys.maxint > (1 << 32) or struct.calcsize('P') != 4,
+                     'only applies to 32-bit platforms')
     def test_expandtabs_overflows_gracefully(self):
-        # This test only affects 32-bit platforms because expandtabs can only take
-        # an int as the max value, not a 64-bit C long.  If expandtabs is changed
-        # to take a 64-bit long, this test should apply to all platforms.
-        if sys.maxint > (1 << 32) or struct.calcsize('P') != 4:
-            return
         self.assertRaises(OverflowError, 't\tt\t'.expandtabs, sys.maxint)
 
     def test__format__(self):
@@ -276,7 +288,7 @@ class StrTest(
         # format specifiers for user defined type
         self.assertEqual('{0:abc}'.format(C()), 'abc')
 
-        # !r and !s coersions
+        # !r and !s coercions
         self.assertEqual('{0!s}'.format('Hello'), 'Hello')
         self.assertEqual('{0!s:}'.format('Hello'), 'Hello')
         self.assertEqual('{0!s:15}'.format('Hello'), 'Hello          ')
@@ -290,11 +302,14 @@ class StrTest(
         self.assertEqual('{0}'.format([]), '[]')
         self.assertEqual('{0}'.format([1]), '[1]')
         self.assertEqual('{0}'.format(E('data')), 'E(data)')
-        self.assertEqual('{0:^10}'.format(E('data')), ' E(data)  ')
-        self.assertEqual('{0:^10s}'.format(E('data')), ' E(data)  ')
         self.assertEqual('{0:d}'.format(G('data')), 'G(data)')
-        self.assertEqual('{0:>15s}'.format(G('data')), ' string is data')
         self.assertEqual('{0!s}'.format(G('data')), 'string is data')
+
+        msg = 'object.__format__ with a non-empty format string is deprecated'
+        with test_support.check_warnings((msg, PendingDeprecationWarning)):
+            self.assertEqual('{0:^10}'.format(E('data')), ' E(data)  ')
+            self.assertEqual('{0:^10s}'.format(E('data')), ' E(data)  ')
+            self.assertEqual('{0:>15s}'.format(G('data')), ' string is data')
 
         self.assertEqual("{0:date: %Y-%m-%d}".format(I(year=2007,
                                                        month=8,
@@ -368,6 +383,21 @@ class StrTest(
         self.assertRaises(ValueError, format, "", "-")
         self.assertRaises(ValueError, "{0:=s}".format, '')
 
+    def test_format_huge_precision(self):
+        format_string = ".{}f".format(sys.maxsize + 1)
+        with self.assertRaises(ValueError):
+            result = format(2.34, format_string)
+
+    def test_format_huge_width(self):
+        format_string = "{}f".format(sys.maxsize + 1)
+        with self.assertRaises(ValueError):
+            result = format(2.34, format_string)
+
+    def test_format_huge_item_number(self):
+        format_string = "{{{}:.6f}}".format(sys.maxsize + 1)
+        with self.assertRaises(ValueError):
+            result = format_string.format(2.34)
+
     def test_format_auto_numbering(self):
         class C:
             def __init__(self, x=100):
@@ -411,7 +441,18 @@ class StrTest(
         self.assertEqual('Andr\202 x'.decode('ascii', 'replace'),
                          'Andr\202 x'.decode(encoding='ascii', errors='replace'))
 
-
+    def test_startswith_endswith_errors(self):
+        with self.assertRaises(UnicodeDecodeError):
+            '\xff'.startswith(u'x')
+        with self.assertRaises(UnicodeDecodeError):
+            '\xff'.endswith(u'x')
+        for meth in ('foo'.startswith, 'foo'.endswith):
+            with self.assertRaises(TypeError) as cm:
+                meth(['f'])
+            exc = str(cm.exception)
+            self.assertIn('unicode', exc)
+            self.assertIn('str', exc)
+            self.assertIn('tuple', exc)
 
 def test_main():
     test_support.run_unittest(StrTest)

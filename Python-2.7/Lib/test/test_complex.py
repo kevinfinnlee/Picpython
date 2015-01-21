@@ -26,7 +26,7 @@ class ComplexTest(unittest.TestCase):
                 unittest.TestCase.assertAlmostEqual(self, a, b)
 
     def assertCloseAbs(self, x, y, eps=1e-9):
-        """Return true iff floats x and y "are close\""""
+        """Return true iff floats x and y "are close"."""
         # put the one with larger magnitude second
         if abs(x) > abs(y):
             x, y = y, x
@@ -61,7 +61,7 @@ class ComplexTest(unittest.TestCase):
         self.fail(msg.format(x, y))
 
     def assertClose(self, x, y, eps=1e-9):
-        """Return true iff complexes x and y "are close\""""
+        """Return true iff complexes x and y "are close"."""
         self.assertCloseAbs(x.real, y.real, eps)
         self.assertCloseAbs(x.imag, y.imag, eps)
 
@@ -107,6 +107,11 @@ class ComplexTest(unittest.TestCase):
     def test_truediv(self):
         self.assertAlmostEqual(complex.__truediv__(2+0j, 1+1j), 1-1j)
         self.assertRaises(ZeroDivisionError, complex.__truediv__, 1+1j, 0+0j)
+
+        for denom_real, denom_imag in [(0, NAN), (NAN, 0), (NAN, NAN)]:
+            z = complex(0, 0) / complex(denom_real, denom_imag)
+            self.assertTrue(isnan(z.real))
+            self.assertTrue(isnan(z.imag))
 
     def test_floordiv(self):
         self.assertAlmostEqual(complex.__floordiv__(3+0j, 1.5+0j), 2)
@@ -501,8 +506,8 @@ class ComplexTest(unittest.TestCase):
         def test_plus_minus_0j(self):
             # test that -0j and 0j literals are not identified
             z1, z2 = 0j, -0j
-            self.assertEquals(atan2(z1.imag, -1.), atan2(0., -1.))
-            self.assertEquals(atan2(z2.imag, -1.), atan2(-0., -1.))
+            self.assertEqual(atan2(z1.imag, -1.), atan2(0., -1.))
+            self.assertEqual(atan2(z2.imag, -1.), atan2(-0., -1.))
 
     @unittest.skipUnless(float.__getformat__("double").startswith("IEEE"),
                          "test requires IEEE 754 doubles")
@@ -558,6 +563,16 @@ class ComplexTest(unittest.TestCase):
         self.assertEqual(format(z, '-'), str(z))
         self.assertEqual(format(z, '<'), str(z))
         self.assertEqual(format(z, '10'), str(z))
+        z = complex(0.0, 3.0)
+        self.assertEqual(format(z, ''), str(z))
+        self.assertEqual(format(z, '-'), str(z))
+        self.assertEqual(format(z, '<'), str(z))
+        self.assertEqual(format(z, '2'), str(z))
+        z = complex(-0.0, 2.0)
+        self.assertEqual(format(z, ''), str(z))
+        self.assertEqual(format(z, '-'), str(z))
+        self.assertEqual(format(z, '<'), str(z))
+        self.assertEqual(format(z, '3'), str(z))
 
         self.assertEqual(format(1+3j, 'g'), '1+3j')
         self.assertEqual(format(3j, 'g'), '0+3j')

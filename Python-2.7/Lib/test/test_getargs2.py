@@ -1,5 +1,7 @@
 import unittest
 from test import test_support
+# Skip this test if the _testcapi module isn't available.
+test_support.import_module('_testcapi')
 from _testcapi import getargs_keywords
 import warnings
 
@@ -41,6 +43,13 @@ VERY_LARGE = 0xFF0000121212121212121242L
 from _testcapi import UCHAR_MAX, USHRT_MAX, UINT_MAX, ULONG_MAX, INT_MAX, \
      INT_MIN, LONG_MIN, LONG_MAX, PY_SSIZE_T_MIN, PY_SSIZE_T_MAX, \
      SHRT_MIN, SHRT_MAX
+
+try:
+    from _testcapi import getargs_L, getargs_K
+except ImportError:
+    _PY_LONG_LONG_available = False
+else:
+    _PY_LONG_LONG_available = True
 
 # fake, they are not defined in Python's header files
 LLONG_MAX = 2**63-1
@@ -208,6 +217,7 @@ class Signed_TestCase(unittest.TestCase):
         self.assertRaises(OverflowError, getargs_n, VERY_LARGE)
 
 
+@unittest.skipUnless(_PY_LONG_LONG_available, 'PY_LONG_LONG not available')
 class LongLong_TestCase(unittest.TestCase):
     def test_L(self):
         from _testcapi import getargs_L
@@ -262,7 +272,7 @@ class Tuple_TestCase(unittest.TestCase):
         from _testcapi import getargs_tuple
 
         ret = getargs_tuple(1, (2, 3))
-        self.assertEquals(ret, (1,2,3))
+        self.assertEqual(ret, (1,2,3))
 
         # make sure invalid tuple arguments are handled correctly
         class seq:
@@ -275,25 +285,25 @@ class Tuple_TestCase(unittest.TestCase):
 class Keywords_TestCase(unittest.TestCase):
     def test_positional_args(self):
         # using all positional args
-        self.assertEquals(
+        self.assertEqual(
             getargs_keywords((1,2), 3, (4,(5,6)), (7,8,9), 10),
             (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
             )
     def test_mixed_args(self):
         # positional and keyword args
-        self.assertEquals(
+        self.assertEqual(
             getargs_keywords((1,2), 3, (4,(5,6)), arg4=(7,8,9), arg5=10),
             (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
             )
     def test_keyword_args(self):
         # all keywords
-        self.assertEquals(
+        self.assertEqual(
             getargs_keywords(arg1=(1,2), arg2=3, arg3=(4,(5,6)), arg4=(7,8,9), arg5=10),
             (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
             )
     def test_optional_args(self):
         # missing optional keyword args, skipping tuples
-        self.assertEquals(
+        self.assertEqual(
             getargs_keywords(arg1=(1,2), arg2=3, arg5=10),
             (1, 2, 3, -1, -1, -1, -1, -1, -1, 10)
             )
@@ -302,14 +312,14 @@ class Keywords_TestCase(unittest.TestCase):
         try:
             getargs_keywords(arg1=(1,2))
         except TypeError, err:
-            self.assertEquals(str(err), "Required argument 'arg2' (pos 2) not found")
+            self.assertEqual(str(err), "Required argument 'arg2' (pos 2) not found")
         else:
             self.fail('TypeError should have been raised')
     def test_too_many_args(self):
         try:
             getargs_keywords((1,2),3,(4,(5,6)),(7,8,9),10,111)
         except TypeError, err:
-            self.assertEquals(str(err), "function takes at most 5 arguments (6 given)")
+            self.assertEqual(str(err), "function takes at most 5 arguments (6 given)")
         else:
             self.fail('TypeError should have been raised')
     def test_invalid_keyword(self):
@@ -317,18 +327,13 @@ class Keywords_TestCase(unittest.TestCase):
         try:
             getargs_keywords((1,2),3,arg5=10,arg666=666)
         except TypeError, err:
-            self.assertEquals(str(err), "'arg666' is an invalid keyword argument for this function")
+            self.assertEqual(str(err), "'arg666' is an invalid keyword argument for this function")
         else:
             self.fail('TypeError should have been raised')
 
 def test_main():
-    tests = [Signed_TestCase, Unsigned_TestCase, Tuple_TestCase, Keywords_TestCase]
-    try:
-        from _testcapi import getargs_L, getargs_K
-    except ImportError:
-        pass # PY_LONG_LONG not available
-    else:
-        tests.append(LongLong_TestCase)
+    tests = [Signed_TestCase, Unsigned_TestCase, LongLong_TestCase,
+             Tuple_TestCase, Keywords_TestCase]
     test_support.run_unittest(*tests)
 
 if __name__ == "__main__":

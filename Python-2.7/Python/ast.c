@@ -37,7 +37,7 @@ static expr_ty ast_for_testlist_comp(struct compiling *, const node *);
 static expr_ty ast_for_call(struct compiling *, const node *, expr_ty);
 
 static PyObject *parsenumber(struct compiling *, const char *);
-static PyObject *parsestr(struct compiling *, const char *);
+static PyObject *parsestr(struct compiling *, const node *n, const char *);
 static PyObject *parsestrplus(struct compiling *, const node *n);
 
 #ifndef LINENO
@@ -688,10 +688,10 @@ ast_for_arguments(struct compiling *c, const node *n)
     }
     args = (n_args ? asdl_seq_new(n_args, c->c_arena) : NULL);
     if (!args && n_args)
-        return NULL; /* Don't need to goto error; no objects allocated */
+        return NULL;
     defaults = (n_defaults ? asdl_seq_new(n_defaults, c->c_arena) : NULL);
     if (!defaults && n_defaults)
-        return NULL; /* Don't need to goto error; no objects allocated */
+        return NULL;
 
     /* fpdef: NAME | '(' fplist ')'
        fplist: fpdef (',' fpdef)* [',']
@@ -711,7 +711,7 @@ ast_for_arguments(struct compiling *c, const node *n)
                 if (i + 1 < NCH(n) && TYPE(CHILD(n, i + 1)) == EQUAL) {
                     expr_ty expression = ast_for_expr(c, CHILD(n, i + 2));
                     if (!expression)
-                        goto error;
+                        return NULL;
                     assert(defaults != NULL);
                     asdl_seq_SET(defaults, j++, expression);
                     i += 2;
@@ -722,11 +722,11 @@ ast_for_arguments(struct compiling *c, const node *n)
                        def f((x, (y))): pass will just incur the tuple unpacking warning. */
                     if (parenthesized && !complex_args) {
                         ast_error(n, "parenthesized arg with default");
-                        goto error;
+                        return NULL;
                     }
                     ast_error(n,
                              "non-default argument follows default argument");
-                    goto error;
+                    return NULL;
                 }
                 if (NCH(ch) == 3) {
                     ch = CHILD(ch, 1);
@@ -735,11 +735,11 @@ ast_for_arguments(struct compiling *c, const node *n)
                         /* We have complex arguments, setup for unpacking. */
                         if (Py_Py3kWarningFlag && !ast_warn(c, ch,
                             "tuple parameter unpacking has been removed in 3.x"))
-                            goto error;
+                            return NULL;
                         complex_args = 1;
                         asdl_seq_SET(args, k++, compiler_complex_args(c, ch));
                         if (!asdl_seq_GET(args, k-1))
-                                goto error;
+                                return NULL;
                     } else {
                         /* def foo((x)): setup for checking NAME below. */
                         /* Loop because there can be many parens and tuple
@@ -754,14 +754,14 @@ ast_for_arguments(struct compiling *c, const node *n)
                     PyObject *id;
                     expr_ty name;
                     if (!forbidden_check(c, n, STR(CHILD(ch, 0))))
-                        goto error;
+                        return NULL;
                     id = NEW_IDENTIFIER(CHILD(ch, 0));
                     if (!id)
-                        goto error;
+                        return NULL;
                     name = Name(id, Param, LINENO(ch), ch->n_col_offset,
                                 c->c_arena);
                     if (!name)
-                        goto error;
+                        return NULL;
                     asdl_seq_SET(args, k++, name);
 
                 }
@@ -769,40 +769,35 @@ ast_for_arguments(struct compiling *c, const node *n)
                 if (parenthesized && Py_Py3kWarningFlag &&
                     !ast_warn(c, ch, "parenthesized argument names "
                               "are invalid in 3.x"))
-                    goto error;
+                    return NULL;
 
                 break;
             }
             case STAR:
                 if (!forbidden_check(c, CHILD(n, i+1), STR(CHILD(n, i+1))))
-                    goto error;
+                    return NULL;
                 vararg = NEW_IDENTIFIER(CHILD(n, i+1));
                 if (!vararg)
-                    goto error;
+                    return NULL;
                 i += 3;
                 break;
             case DOUBLESTAR:
                 if (!forbidden_check(c, CHILD(n, i+1), STR(CHILD(n, i+1))))
-                    goto error;
+                    return NULL;
                 kwarg = NEW_IDENTIFIER(CHILD(n, i+1));
                 if (!kwarg)
-                    goto error;
+                    return NULL;
                 i += 3;
                 break;
             default:
                 PyErr_Format(PyExc_SystemError,
                              "unexpected node in varargslist: %d @ %d",
                              TYPE(ch), i);
-                goto error;
+                return NULL;
         }
     }
 
     return arguments(args, vararg, kwarg, defaults, c->c_arena);
-
- error:
-    Py_XDECREF(vararg);
-    Py_XDECREF(kwarg);
-    return NULL;
 }
 
 static expr_ty
@@ -887,9 +882,9 @@ ast_for_decorators(struct compiling *c, const node *n)
 
     for (i = 0; i < NCH(n); i++) {
         d = ast_for_decorator(c, CHILD(n, i));
-            if (!d)
-                return NULL;
-            asdl_seq_SET(decorator_seq, i, d);
+        if (!d)
+            return NULL;
+        asdl_seq_SET(decorator_seq, i, d);
     }
     return decorator_seq;
 }
@@ -935,7 +930,7 @@ ast_for_decorated(struct compiling *c, const node *n)
       return NULL;
 
     assert(TYPE(CHILD(n, 1)) == funcdef ||
-	   TYPE(CHILD(n, 1)) == classdef);
+           TYPE(CHILD(n, 1)) == classdef);
 
     if (TYPE(CHILD(n, 1)) == funcdef) {
       thing = ast_for_funcdef(c, CHILD(n, 1), decorator_seq);
@@ -1749,14 +1744,19 @@ ast_for_factor(struct compiling *c, const node *n)
         NCH(ppower) == 1 &&
         TYPE((patom = CHILD(ppower, 0))) == atom &&
         TYPE((pnum = CHILD(patom, 0))) == NUMBER) {
+        PyObject *pynum;
         char *s = PyObject_MALLOC(strlen(STR(pnum)) + 2);
         if (s == NULL)
             return NULL;
         s[0] = '-';
         strcpy(s + 1, STR(pnum));
-        PyObject_FREE(STR(pnum));
-        STR(pnum) = s;
-        return ast_for_atom(c, patom);
+        pynum = parsenumber(c, s);
+        PyObject_FREE(s);
+        if (!pynum)
+            return NULL;
+
+        PyArena_AddPyObject(c->c_arena, pynum);
+        return Num(pynum, LINENO(n), n->n_col_offset, c->c_arena);
     }
 
     expression = ast_for_expr(c, CHILD(n, 1));
@@ -2247,11 +2247,10 @@ ast_for_expr_stmt(struct compiling *c, const node *n)
                 return NULL;
             }
             e = ast_for_testlist(c, ch);
-
-            /* set context to assign */
             if (!e)
                 return NULL;
 
+            /* set context to assign */
             if (!set_context(c, e, Store, CHILD(n, i)))
                 return NULL;
 
@@ -2680,6 +2679,18 @@ ast_for_exec_stmt(struct compiling *c, const node *n)
     expr1 = ast_for_expr(c, CHILD(n, 1));
     if (!expr1)
         return NULL;
+
+    if (expr1->kind == Tuple_kind && n_children < 4 &&
+        (asdl_seq_LEN(expr1->v.Tuple.elts) == 2 ||
+         asdl_seq_LEN(expr1->v.Tuple.elts) == 3)) {
+        /* Backwards compatibility: passing exec args as a tuple */
+        globals = asdl_seq_GET(expr1->v.Tuple.elts, 1);
+        if (asdl_seq_LEN(expr1->v.Tuple.elts) == 3) {
+            locals = asdl_seq_GET(expr1->v.Tuple.elts, 2);
+        }
+        expr1 = asdl_seq_GET(expr1->v.Tuple.elts, 0);
+    }
+
     if (n_children >= 4) {
         globals = ast_for_expr(c, CHILD(n, 3));
         if (!globals)
@@ -3298,8 +3309,8 @@ ast_for_stmt(struct compiling *c, const node *n)
                 return ast_for_funcdef(c, ch, NULL);
             case classdef:
                 return ast_for_classdef(c, ch, NULL);
-	    case decorated:
-	        return ast_for_decorated(c, ch);
+            case decorated:
+                return ast_for_decorated(c, ch);
             default:
                 PyErr_Format(PyExc_SystemError,
                              "unhandled small_stmt: TYPE=%d NCH=%d\n",
@@ -3388,8 +3399,8 @@ decode_unicode(struct compiling *c, const char *s, size_t len, int rawmode, cons
                 /* check for integer overflow */
                 if (len > PY_SIZE_MAX / 6)
                         return NULL;
-		/* "<C3><A4>" (2 bytes) may become "\U000000E4" (10 bytes), or 1:5
-		   "\ä" (3 bytes) may become "\u005c\U000000E4" (16 bytes), or ~1:6 */
+                /* "<C3><A4>" (2 bytes) may become "\U000000E4" (10 bytes), or 1:5
+                   "\ä" (3 bytes) may become "\u005c\U000000E4" (16 bytes), or ~1:6 */
                 u = PyString_FromStringAndSize((char *)NULL, len * 6);
                 if (u == NULL)
                         return NULL;
@@ -3419,8 +3430,8 @@ decode_unicode(struct compiling *c, const char *s, size_t len, int rawmode, cons
                                         sprintf(p, "\\U%02x%02x%02x%02x",
                                                 r[i + 0] & 0xFF,
                                                 r[i + 1] & 0xFF,
-						r[i + 2] & 0xFF,
-						r[i + 3] & 0xFF);
+                                                r[i + 2] & 0xFF,
+                                                r[i + 3] & 0xFF);
                                         p += 10;
                                 }
                                 Py_DECREF(w);
@@ -3445,13 +3456,14 @@ decode_unicode(struct compiling *c, const char *s, size_t len, int rawmode, cons
  * parsestr parses it, and returns the decoded Python string object.
  */
 static PyObject *
-parsestr(struct compiling *c, const char *s)
+parsestr(struct compiling *c, const node *n, const char *s)
 {
-        size_t len;
+        size_t len, i;
         int quote = Py_CHARMASK(*s);
         int rawmode = 0;
         int need_encoding;
         int unicode = c->c_future_unicode;
+        int bytes = 0;
 
         if (isalpha(quote) || quote == '_') {
                 if (quote == 'u' || quote == 'U') {
@@ -3461,6 +3473,7 @@ parsestr(struct compiling *c, const char *s)
                 if (quote == 'b' || quote == 'B') {
                         quote = *++s;
                         unicode = 0;
+                        bytes = 1;
                 }
                 if (quote == 'r' || quote == 'R') {
                         quote = *++s;
@@ -3489,6 +3502,16 @@ parsestr(struct compiling *c, const char *s)
                         PyErr_BadInternalCall();
                         return NULL;
                 }
+        }
+        if (Py_Py3kWarningFlag && bytes) {
+            for (i = 0; i < len; i++) {
+                if ((unsigned char)s[i] > 127) {
+                    if (!ast_warn(c, n,
+                        "non-ascii bytes literals not supported in 3.x"))
+                        return NULL;
+                    break;
+                }
+            }
         }
 #ifdef Py_USING_UNICODE
         if (unicode || Py_UnicodeFlag) {
@@ -3532,11 +3555,11 @@ parsestrplus(struct compiling *c, const node *n)
         PyObject *v;
         int i;
         REQ(CHILD(n, 0), STRING);
-        if ((v = parsestr(c, STR(CHILD(n, 0)))) != NULL) {
+        if ((v = parsestr(c, n, STR(CHILD(n, 0)))) != NULL) {
                 /* String literal concatenation */
                 for (i = 1; i < NCH(n); i++) {
                         PyObject *s;
-                        s = parsestr(c, STR(CHILD(n, i)));
+                        s = parsestr(c, n, STR(CHILD(n, i)));
                         if (s == NULL)
                                 goto onError;
                         if (PyString_Check(v) && PyString_Check(s)) {

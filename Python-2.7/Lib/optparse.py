@@ -204,7 +204,6 @@ class HelpFormatter:
                  short_first):
         self.parser = None
         self.indent_increment = indent_increment
-        self.help_position = self.max_help_position = max_help_position
         if width is None:
             try:
                 width = int(os.environ['COLUMNS'])
@@ -212,6 +211,8 @@ class HelpFormatter:
                 width = 80
             width -= 2
         self.width = width
+        self.help_position = self.max_help_position = \
+                min(max_help_position, max(width - 20, indent_increment * 2))
         self.current_indent = 0
         self.level = 0
         self.help_width = None          # computed later
@@ -256,7 +257,7 @@ class HelpFormatter:
         Format a paragraph of free-form text for inclusion in the
         help output at the current indentation level.
         """
-        text_width = self.width - self.current_indent
+        text_width = max(self.width - self.current_indent, 11)
         indent = " "*self.current_indent
         return textwrap.fill(text,
                              text_width,
@@ -337,7 +338,7 @@ class HelpFormatter:
         self.dedent()
         self.dedent()
         self.help_position = min(max_len + 2, self.max_help_position)
-        self.help_width = self.width - self.help_position
+        self.help_width = max(self.width - self.help_position, 11)
 
     def format_option_strings(self, option):
         """Return a comma-separated list of option strings & metavariables."""
@@ -1008,7 +1009,7 @@ class OptionContainer:
         """add_option(Option)
            add_option(opt_str, ..., kwarg=val, ...)
         """
-        if type(args[0]) is types.StringType:
+        if type(args[0]) in types.StringTypes:
             option = self.option_class(*args, **kwargs)
         elif len(args) == 1 and not kwargs:
             option = args[0]
@@ -1131,6 +1132,11 @@ class OptionParser (OptionContainer):
       prog : string
         the name of the current program (to override
         os.path.basename(sys.argv[0])).
+      description : string
+        A paragraph of text giving a brief overview of your program.
+        optparse reformats this paragraph to fit the current terminal
+        width and prints it when the user requests help (after usage,
+        but before the list of options).
       epilog : string
         paragraph of help text to print after option help
 
@@ -1466,7 +1472,7 @@ class OptionParser (OptionContainer):
         """_match_long_opt(opt : string) -> string
 
         Determine which long option string 'opt' matches, ie. which one
-        it is an unambiguous abbrevation for.  Raises BadOptionError if
+        it is an unambiguous abbreviation for.  Raises BadOptionError if
         'opt' doesn't unambiguously match any long option string.
         """
         return _match_abbrev(opt, self._long_opt)

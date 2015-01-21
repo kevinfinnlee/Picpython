@@ -6,6 +6,13 @@
    :synopsis: Regression tests package containing the testing suite for Python.
 .. sectionauthor:: Brett Cannon <brett@python.org>
 
+.. note::
+    The :mod:`test` package is meant for internal use by Python only. It is
+    documented for the benefit of the core developers of Python. Any use of
+    this package outside of Python's standard library is discouraged as code
+    mentioned here can change or be removed without notice between releases of
+    Python.
+
 
 The :mod:`test` package contains all regression tests for Python as well as the
 modules :mod:`test.test_support` and :mod:`test.regrtest`.
@@ -148,35 +155,35 @@ guidelines to be followed:
 
 .. _regrtest:
 
-Running tests using :mod:`test.regrtest`
-----------------------------------------
+Running tests using the command-line interface
+----------------------------------------------
 
-:mod:`test.regrtest` can be used as a script to drive Python's regression test
-suite. Running the script by itself automatically starts running all regression
+The :mod:`test.regrtest` module can be run as a script to drive Python's regression
+test suite, thanks to the :option:`-m` option: :program:`python -m test.regrtest`.
+Running the script by itself automatically starts running all regression
 tests in the :mod:`test` package. It does this by finding all modules in the
 package whose name starts with ``test_``, importing them, and executing the
 function :func:`test_main` if present. The names of tests to execute may also
 be passed to the script. Specifying a single regression test (:program:`python
-regrtest.py` :option:`test_spam.py`) will minimize output and only print
-whether the test passed or failed and thus minimize output.
+-m test.regrtest test_spam`) will minimize output and only print whether
+the test passed or failed and thus minimize output.
 
 Running :mod:`test.regrtest` directly allows what resources are available for
-tests to use to be set. You do this by using the :option:`-u` command-line
-option. Run :program:`python regrtest.py` :option:`-uall` to turn on all
-resources; specifying :option:`all` as an option for :option:`-u` enables all
-possible resources. If all but one resource is desired (a more common case), a
+tests to use to be set. You do this by using the ``-u`` command-line
+option. Specifying ``all`` as the value for the ``-u`` option enables all
+possible resources: :program:`python -m test -uall`.
+If all but one resource is desired (a more common case), a
 comma-separated list of resources that are not desired may be listed after
-:option:`all`. The command :program:`python regrtest.py`
-:option:`-uall,-audio,-largefile` will run :mod:`test.regrtest` with all
-resources except the :option:`audio` and :option:`largefile` resources. For a
-list of all resources and more command-line options, run :program:`python
-regrtest.py` :option:`-h`.
+``all``. The command :program:`python -m test.regrtest -uall,-audio,-largefile`
+will run :mod:`test.regrtest` with all resources except the ``audio`` and
+``largefile`` resources. For a list of all resources and more command-line
+options, run :program:`python -m test.regrtest -h`.
 
 Some other ways to execute the regression tests depend on what platform the
-tests are being executed on. On Unix, you can run :program:`make`
-:option:`test` at the top-level directory where Python was built. On Windows,
-executing :program:`rt.bat` from your :file:`PCBuild` directory will run all
-regression tests.
+tests are being executed on. On Unix, you can run :program:`make test` at the
+top-level directory where Python was built. On Windows, executing
+:program:`rt.bat` from your :file:`PCBuild` directory will run all regression
+tests.
 
 
 :mod:`test.test_support` --- Utility functions for tests
@@ -373,7 +380,7 @@ The :mod:`test.test_support` module defines the following functions:
 
       with captured_stdout() as s:
           print "hello"
-      assert s.getvalue() == "hello"
+      assert s.getvalue() == "hello\n"
 
    .. versionadded:: 2.6
 

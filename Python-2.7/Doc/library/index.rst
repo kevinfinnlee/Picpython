@@ -4,9 +4,6 @@
   The Python Standard Library
 ###############################
 
-:Release: |version|
-:Date: |today|
-
 While :ref:`reference-index` describes the exact syntax and
 semantics of the Python language, this library reference manual
 describes the standard library that is distributed with Python. It also
@@ -33,7 +30,7 @@ optional components.
 In addition to the standard library, there is a growing collection of
 several thousand components (from individual programs and modules to
 packages and entire application development frameworks), available from
-the `Python Package Index <http://pypi.python.org/pypi>`_.
+the `Python Package Index <https://pypi.python.org/pypi>`_.
 
 
 .. toctree::
@@ -66,6 +63,7 @@ the `Python Package Index <http://pypi.python.org/pypi>`_.
    tk.rst
    development.rst
    debug.rst
+   distribution.rst
    python.rst
    custominterp.rst
    restricted.rst

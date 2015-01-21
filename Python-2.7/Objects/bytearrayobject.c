@@ -636,8 +636,14 @@ bytearray_ass_subscript(PyByteArrayObject *self, PyObject *index, PyObject *valu
         needed = 0;
     }
     else if (values == (PyObject *)self || !PyByteArray_Check(values)) {
-        /* Make a copy an call this function recursively */
         int err;
+        if (PyNumber_Check(values) || PyUnicode_Check(values)) {
+            PyErr_SetString(PyExc_TypeError,
+                            "can assign only bytes, buffers, or iterables "
+                            "of ints in range(0, 256)");
+            return -1;
+        }
+        /* Make a copy and call this function recursively */
         values = PyByteArray_FromObject(values);
         if (values == NULL)
             return -1;
@@ -988,10 +994,8 @@ bytearray_repr(PyByteArrayObject *self)
            *p++ = *quote_postfix++;
         }
         *p = '\0';
-        if (_PyString_Resize(&v, (p - PyString_AS_STRING(v)))) {
-            Py_DECREF(v);
-            return NULL;
-        }
+        /* v is cleared on error */
+        (void)_PyString_Resize(&v, (p - PyString_AS_STRING(v)));
         return v;
     }
 }
@@ -1149,8 +1153,8 @@ bytearray_find_internal(PyByteArrayObject *self, PyObject *args, int dir)
     Py_ssize_t start=0, end=PY_SSIZE_T_MAX;
     Py_ssize_t res;
 
-    if (!PyArg_ParseTuple(args, "O|O&O&:find/rfind/index/rindex", &subobj,
-        _PyEval_SliceIndex, &start, _PyEval_SliceIndex, &end))
+    if (!stringlib_parse_args_finds("find/rfind/index/rindex",
+                                    args, &subobj, &start, &end))
         return -2;
     if (_getbuffer(subobj, &subbuf) < 0)
         return -2;
@@ -1170,7 +1174,7 @@ PyDoc_STRVAR(find__doc__,
 "B.find(sub [,start [,end]]) -> int\n\
 \n\
 Return the lowest index in B where subsection sub is found,\n\
-such that sub is contained within s[start,end].  Optional\n\
+such that sub is contained within B[start,end].  Optional\n\
 arguments start and end are interpreted as in slice notation.\n\
 \n\
 Return -1 on failure.");
@@ -1200,8 +1204,7 @@ bytearray_count(PyByteArrayObject *self, PyObject *args)
     Py_buffer vsub;
     PyObject *count_obj;
 
-    if (!PyArg_ParseTuple(args, "O|O&O&:count", &sub_obj,
-        _PyEval_SliceIndex, &start, _PyEval_SliceIndex, &end))
+    if (!stringlib_parse_args_finds("count", args, &sub_obj, &start, &end))
         return NULL;
 
     if (_getbuffer(sub_obj, &vsub) < 0)
@@ -1241,7 +1244,7 @@ PyDoc_STRVAR(rfind__doc__,
 "B.rfind(sub [,start [,end]]) -> int\n\
 \n\
 Return the highest index in B where subsection sub is found,\n\
-such that sub is contained within s[start,end].  Optional\n\
+such that sub is contained within B[start,end].  Optional\n\
 arguments start and end are interpreted as in slice notation.\n\
 \n\
 Return -1 on failure.");
@@ -1359,8 +1362,7 @@ bytearray_startswith(PyByteArrayObject *self, PyObject *args)
     PyObject *subobj;
     int result;
 
-    if (!PyArg_ParseTuple(args, "O|O&O&:startswith", &subobj,
-        _PyEval_SliceIndex, &start, _PyEval_SliceIndex, &end))
+    if (!stringlib_parse_args_finds("startswith", args, &subobj, &start, &end))
         return NULL;
     if (PyTuple_Check(subobj)) {
         Py_ssize_t i;
@@ -1399,8 +1401,7 @@ bytearray_endswith(PyByteArrayObject *self, PyObject *args)
     PyObject *subobj;
     int result;
 
-    if (!PyArg_ParseTuple(args, "O|O&O&:endswith", &subobj,
-        _PyEval_SliceIndex, &start, _PyEval_SliceIndex, &end))
+    if (!stringlib_parse_args_finds("endswith", args, &subobj, &start, &end))
         return NULL;
     if (PyTuple_Check(subobj)) {
         Py_ssize_t i;
@@ -2291,7 +2292,7 @@ bytearray_extend(PyByteArrayObject *self, PyObject *arg)
     if (it == NULL)
         return NULL;
 
-    /* Try to determine the length of the argument. 32 is abitrary. */
+    /* Try to determine the length of the argument. 32 is arbitrary. */
     buf_size = _PyObject_LengthHint(arg, 32);
     if (buf_size == -1) {
         Py_DECREF(it);
@@ -2299,8 +2300,10 @@ bytearray_extend(PyByteArrayObject *self, PyObject *arg)
     }
 
     bytearray_obj = PyByteArray_FromStringAndSize(NULL, buf_size);
-    if (bytearray_obj == NULL)
+    if (bytearray_obj == NULL) {
+        Py_DECREF(it);
         return NULL;
+    }
     buf = PyByteArray_AS_STRING(bytearray_obj);
 
     while ((item = PyIter_Next(it)) != NULL) {
@@ -2333,8 +2336,10 @@ bytearray_extend(PyByteArrayObject *self, PyObject *arg)
         return NULL;
     }
 
-    if (bytearray_setslice(self, Py_SIZE(self), Py_SIZE(self), bytearray_obj) == -1)
+    if (bytearray_setslice(self, Py_SIZE(self), Py_SIZE(self), bytearray_obj) == -1) {
+        Py_DECREF(bytearray_obj);
         return NULL;
+    }
     Py_DECREF(bytearray_obj);
 
     Py_RETURN_NONE;
@@ -2355,8 +2360,8 @@ bytearray_pop(PyByteArrayObject *self, PyObject *args)
         return NULL;
 
     if (n == 0) {
-        PyErr_SetString(PyExc_OverflowError,
-                        "cannot pop an empty bytearray");
+        PyErr_SetString(PyExc_IndexError,
+                        "pop from empty bytearray");
         return NULL;
     }
     if (where < 0)
@@ -2648,7 +2653,7 @@ bytearray_join(PyByteArrayObject *self, PyObject *it)
 }
 
 PyDoc_STRVAR(splitlines__doc__,
-"B.splitlines([keepends]) -> list of lines\n\
+"B.splitlines(keepends=False) -> list of lines\n\
 \n\
 Return a list of the lines in B, breaking at line boundaries.\n\
 Line breaks are not included in the resulting list unless keepends\n\

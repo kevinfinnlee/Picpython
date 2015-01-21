@@ -34,7 +34,7 @@ class TextTestResult(result.TestResult):
     separator2 = '-' * 70
 
     def __init__(self, stream, descriptions, verbosity):
-        super(TextTestResult, self).__init__()
+        super(TextTestResult, self).__init__(stream, descriptions, verbosity)
         self.stream = stream
         self.showAll = verbosity > 1
         self.dots = verbosity == 1
@@ -168,9 +168,10 @@ class TextTestRunner(object):
             results = map(len, (result.expectedFailures,
                                 result.unexpectedSuccesses,
                                 result.skipped))
-            expectedFails, unexpectedSuccesses, skipped = results
         except AttributeError:
             pass
+        else:
+            expectedFails, unexpectedSuccesses, skipped = results
 
         infos = []
         if not result.wasSuccessful():

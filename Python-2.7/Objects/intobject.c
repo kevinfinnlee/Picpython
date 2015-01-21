@@ -189,12 +189,26 @@ PyInt_AsLong(register PyObject *op)
     return val;
 }
 
+int
+_PyInt_AsInt(PyObject *obj)
+{
+    long result = PyInt_AsLong(obj);
+    if (result == -1 && PyErr_Occurred())
+        return -1;
+    if (result > INT_MAX || result < INT_MIN) {
+        PyErr_SetString(PyExc_OverflowError,
+                        "Python int too large to convert to C int");
+        return -1;
+    }
+    return (int)result;
+}
+
 Py_ssize_t
 PyInt_AsSsize_t(register PyObject *op)
 {
 #if SIZEOF_SIZE_T != SIZEOF_LONG
     PyNumberMethods *nb;
-    PyIntObject *io;
+    PyObject *io;
     Py_ssize_t val;
 #endif
 
@@ -218,15 +232,15 @@ PyInt_AsSsize_t(register PyObject *op)
     }
 
     if (nb->nb_long != 0)
-        io = (PyIntObject*) (*nb->nb_long) (op);
+        io = (*nb->nb_long)(op);
     else
-        io = (PyIntObject*) (*nb->nb_int) (op);
+        io = (*nb->nb_int)(op);
     if (io == NULL)
         return -1;
     if (!PyInt_Check(io)) {
         if (PyLong_Check(io)) {
             /* got a long? => retry int conversion */
-            val = _PyLong_AsSsize_t((PyObject *)io);
+            val = _PyLong_AsSsize_t(io);
             Py_DECREF(io);
             if ((val == -1) && PyErr_Occurred())
                 return -1;
@@ -751,7 +765,13 @@ int_pow(PyIntObject *v, PyIntObject *w, PyIntObject *z)
     while (iw > 0) {
         prev = ix;              /* Save value for overflow check */
         if (iw & 1) {
-            ix = ix*temp;
+            /*
+             * The (unsigned long) cast below ensures that the multiplication
+             * is interpreted as an unsigned operation rather than a signed one
+             * (C99 6.3.1.8p1), thus avoiding the perils of undefined behaviour
+             * from signed arithmetic overflow (C99 6.5p5).  See issue #12973.
+             */
+            ix = (unsigned long)ix * temp;
             if (temp == 0)
                 break; /* Avoid ix / 0 */
             if (ix / temp != prev) {
@@ -764,7 +784,7 @@ int_pow(PyIntObject *v, PyIntObject *w, PyIntObject *z)
         iw >>= 1;               /* Shift exponent down by 1 bit */
         if (iw==0) break;
         prev = temp;
-        temp *= temp;           /* Square the value of temp */
+        temp = (unsigned long)temp * temp;  /* Square the value of temp */
         if (prev != 0 && temp / prev != prev) {
             return PyLong_Type.tp_as_number->nb_power(
                 (PyObject *)v, (PyObject *)w, (PyObject *)z);
@@ -1053,8 +1073,14 @@ int_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Oi:int", kwlist,
                                      &x, &base))
         return NULL;
-    if (x == NULL)
+    if (x == NULL) {
+        if (base != -909) {
+            PyErr_SetString(PyExc_TypeError,
+                            "int() missing string argument");
+            return NULL;
+        }
         return PyInt_FromLong(0L);
+    }
     if (base == -909)
         return PyNumber_Int(x);
     if (PyString_Check(x)) {
@@ -1328,15 +1354,20 @@ static PyGetSetDef int_getset[] = {
 };
 
 PyDoc_STRVAR(int_doc,
-"int(x[, base]) -> integer\n\
+"int(x=0) -> int or long\n\
+int(x, base=10) -> int or long\n\
 \n\
-Convert a string or number to an integer, if possible.  A floating point\n\
-argument will be truncated towards zero (this does not include a string\n\
-representation of a floating point number!)  When converting a string, use\n\
-the optional base.  It is an error to supply a base when converting a\n\
-non-string.  If base is zero, the proper base is guessed based on the\n\
-string content.  If the argument is outside the integer range a\n\
-long object will be returned instead.");
+Convert a number or string to an integer, or return 0 if no arguments\n\
+are given.  If x is floating point, the conversion truncates towards zero.\n\
+If x is outside the integer range, the function returns a long instead.\n\
+\n\
+If x is not a number or if base is given, then x must be a string or\n\
+Unicode object representing an integer literal in the given base.  The\n\
+literal can be preceded by '+' or '-' and be surrounded by whitespace.\n\
+The base defaults to 10.  Valid bases are 0 and 2-36.  Base 0 means to\n\
+interpret the base from the string as an integer literal.\n\
+>>> int('0b100', base=0)\n\
+4");
 
 static PyNumberMethods int_as_number = {
     (binaryfunc)int_add,        /*nb_add*/

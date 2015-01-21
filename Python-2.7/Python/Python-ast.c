@@ -594,8 +594,25 @@ static int obj2ast_object(PyObject* obj, PyObject** out, PyArena* arena)
     return 0;
 }
 
-#define obj2ast_identifier obj2ast_object
-#define obj2ast_string obj2ast_object
+static int obj2ast_identifier(PyObject* obj, PyObject** out, PyArena* arena)
+{
+    if (!PyString_CheckExact(obj) && obj != Py_None) {
+        PyErr_Format(PyExc_TypeError,
+                    "AST identifier must be of type str");
+        return 1;
+    }
+    return obj2ast_object(obj, out, arena);
+}
+
+static int obj2ast_string(PyObject* obj, PyObject** out, PyArena* arena)
+{
+    if (!PyString_CheckExact(obj) && !PyUnicode_CheckExact(obj)) {
+        PyErr_SetString(PyExc_TypeError,
+                       "AST string must be of type str or unicode");
+        return 1;
+    }
+    return obj2ast_object(obj, out, arena);
+}
 
 static int obj2ast_int(PyObject* obj, int* out, PyArena* arena)
 {
@@ -6732,10 +6749,18 @@ PyObject* PyAST_mod2obj(mod_ty t)
 mod_ty PyAST_obj2mod(PyObject* ast, PyArena* arena, int mode)
 {
     mod_ty res;
-    PyObject *req_type[] = {(PyObject*)Module_type, (PyObject*)Expression_type,
-                            (PyObject*)Interactive_type};
-    char *req_name[] = {"Module", "Expression", "Interactive"};
+    PyObject *req_type[3];
+    char *req_name[3];
     int isinstance;
+
+    req_type[0] = (PyObject*)Module_type;
+    req_type[1] = (PyObject*)Expression_type;
+    req_type[2] = (PyObject*)Interactive_type;
+
+    req_name[0] = "Module";
+    req_name[1] = "Expression";
+    req_name[2] = "Interactive";
+
     assert(0 <= mode && mode <= 2);
 
     init_types();

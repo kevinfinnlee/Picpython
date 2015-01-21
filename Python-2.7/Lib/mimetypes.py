@@ -199,9 +199,8 @@ class MimeTypes:
         list of standard types, else to the list of non-standard
         types.
         """
-        fp = open(filename)
-        self.readfp(fp, strict)
-        fp.close()
+        with open(filename) as fp:
+            self.readfp(fp, strict)
 
     def readfp(self, fp, strict=True):
         """
@@ -243,34 +242,31 @@ class MimeTypes:
             i = 0
             while True:
                 try:
-                    ctype = _winreg.EnumKey(mimedb, i)
+                    yield _winreg.EnumKey(mimedb, i)
                 except EnvironmentError:
                     break
-                try:
-                    ctype = ctype.encode(default_encoding) # omit in 3.x!
-                except UnicodeEncodeError:
-                    pass
-                else:
-                    yield ctype
                 i += 1
 
         default_encoding = sys.getdefaultencoding()
-        with _winreg.OpenKey(_winreg.HKEY_CLASSES_ROOT,
-                             r'MIME\Database\Content Type') as mimedb:
-            for ctype in enum_types(mimedb):
-                with _winreg.OpenKey(mimedb, ctype) as key:
-                    try:
-                        suffix, datatype = _winreg.QueryValueEx(key, 'Extension')
-                    except EnvironmentError:
-                        continue
-                    if datatype != _winreg.REG_SZ:
-                        continue
-                    try:
-                        suffix = suffix.encode(default_encoding) # omit in 3.x!
-                    except UnicodeEncodeError:
-                        continue
-                    self.add_type(ctype, suffix, strict)
-
+        with _winreg.OpenKey(_winreg.HKEY_CLASSES_ROOT, '') as hkcr:
+            for subkeyname in enum_types(hkcr):
+                try:
+                    with _winreg.OpenKey(hkcr, subkeyname) as subkey:
+                        # Only check file extensions
+                        if not subkeyname.startswith("."):
+                            continue
+                        # raises EnvironmentError if no 'Content Type' value
+                        mimetype, datatype = _winreg.QueryValueEx(
+                            subkey, 'Content Type')
+                        if datatype != _winreg.REG_SZ:
+                            continue
+                        try:
+                            mimetype = mimetype.encode(default_encoding)
+                        except UnicodeEncodeError:
+                            continue
+                        self.add_type(mimetype, subkeyname, strict)
+                except EnvironmentError:
+                    continue
 
 def guess_type(url, strict=True):
     """Guess the type of a file based on its URL.
@@ -356,7 +352,7 @@ def init(files=None):
         files = knownfiles
     for file in files:
         if os.path.isfile(file):
-            db.readfp(open(file))
+            db.read(file)
     encodings_map = db.encodings_map
     suffix_map = db.suffix_map
     types_map = db.types_map[True]
@@ -370,9 +366,10 @@ def read_mime_types(file):
         f = open(file)
     except IOError:
         return None
-    db = MimeTypes()
-    db.readfp(f, True)
-    return db.types_map[True]
+    with f:
+        db = MimeTypes()
+        db.readfp(f, True)
+        return db.types_map[True]
 
 
 def _default_mime_types():
@@ -386,12 +383,14 @@ def _default_mime_types():
         '.taz': '.tar.gz',
         '.tz': '.tar.gz',
         '.tbz2': '.tar.bz2',
+        '.txz': '.tar.xz',
         }
 
     encodings_map = {
         '.gz': 'gzip',
         '.Z': 'compress',
         '.bz2': 'bzip2',
+        '.xz': 'xz',
         }
 
     # Before adding new types, make sure they are either registered with IANA,
@@ -432,11 +431,12 @@ def _default_mime_types():
         '.hdf'    : 'application/x-hdf',
         '.htm'    : 'text/html',
         '.html'   : 'text/html',
+        '.ico'    : 'image/vnd.microsoft.icon',
         '.ief'    : 'image/ief',
         '.jpe'    : 'image/jpeg',
         '.jpeg'   : 'image/jpeg',
         '.jpg'    : 'image/jpeg',
-        '.js'     : 'application/x-javascript',
+        '.js'     : 'application/javascript',
         '.ksh'    : 'text/plain',
         '.latex'  : 'application/x-latex',
         '.m1v'    : 'video/mpeg',

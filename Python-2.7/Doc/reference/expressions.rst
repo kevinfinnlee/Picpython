@@ -96,14 +96,13 @@ exception.
 definition begins with two or more underscore characters and does not end in two
 or more underscores, it is considered a :dfn:`private name` of that class.
 Private names are transformed to a longer form before code is generated for
-them.  The transformation inserts the class name in front of the name, with
-leading underscores removed, and a single underscore inserted in front of the
-class name.  For example, the identifier ``__spam`` occurring in a class named
-``Ham`` will be transformed to ``_Ham__spam``.  This transformation is
-independent of the syntactical context in which the identifier is used.  If the
-transformed name is extremely long (longer than 255 characters), implementation
-defined truncation may happen.  If the class name consists only of underscores,
-no transformation is done.
+them.  The transformation inserts the class name, with leading underscores
+removed and a single underscore inserted, in front of the name.  For example,
+the identifier ``__spam`` occurring in a class named ``Ham`` will be transformed
+to ``_Ham__spam``.  This transformation is independent of the syntactical
+context in which the identifier is used.  If the transformed name is extremely
+long (longer than 255 characters), implementation defined truncation may happen.
+If the class name consists only of underscores, no transformation is done.
 
 
 
@@ -185,7 +184,7 @@ brackets:
    list_comprehension: `expression` `list_for`
    list_for: "for" `target_list` "in" `old_expression_list` [`list_iter`]
    old_expression_list: `old_expression` [("," `old_expression`)+ [","]]
-   old_expression: `or_test` | `old_lambda_form`
+   old_expression: `or_test` | `old_lambda_expr`
    list_iter: `list_for` | `list_if`
    list_if: "if" `old_expression` [`list_iter`]
 
@@ -347,7 +346,7 @@ A string conversion is an expression list enclosed in reverse (a.k.a. backward)
 quotes:
 
 .. productionlist::
-   string_conversion: "'" `expression_list` "'"
+   string_conversion: "`" `expression_list` "`"
 
 A string conversion evaluates the contained expression list and converts the
 resulting object into a string according to rules specific to its type.
@@ -417,12 +416,19 @@ All of this makes generator functions quite similar to coroutines; they yield
 multiple times, they have more than one entry point and their execution can be
 suspended.  The only difference is that a generator function cannot control
 where should the execution continue after it yields; the control is always
-transfered to the generator's caller.
+transferred to the generator's caller.
 
 .. index:: object: generator
 
-The following generator's methods can be used to control the execution of a
-generator function:
+
+Generator-iterator methods
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+This subsection describes the methods of a generator iterator.  They can
+be used to control the execution of a generator function.
+
+Note that calling any of the generator methods below when the generator
+is already executing raises a :exc:`ValueError` exception.
 
 .. index:: exception: StopIteration
 
@@ -431,13 +437,14 @@ generator function:
 
    Starts the execution of a generator function or resumes it at the last executed
    :keyword:`yield` expression.  When a generator function is resumed with a
-   :meth:`next` method, the current :keyword:`yield` expression always evaluates to
+   :meth:`~generator.next` method, the current :keyword:`yield` expression
+   always evaluates to
    :const:`None`.  The execution then continues to the next :keyword:`yield`
    expression, where the generator is suspended again, and the value of the
-   :token:`expression_list` is returned to :meth:`next`'s caller. If the generator
+   :token:`expression_list` is returned to :meth:`~generator.next`'s caller.
+   If the generator
    exits without yielding another value, a :exc:`StopIteration` exception is
    raised.
-
 
 .. method:: generator.send(value)
 
@@ -654,23 +661,24 @@ is a tuple containing the conversion of the slice items; otherwise, the
 conversion of the lone slice item is the key.  The conversion of a slice item
 that is an expression is that expression.  The conversion of an ellipsis slice
 item is the built-in ``Ellipsis`` object.  The conversion of a proper slice is a
-slice object (see section :ref:`types`) whose :attr:`start`, :attr:`stop` and
-:attr:`step` attributes are the values of the expressions given as lower bound,
-upper bound and stride, respectively, substituting ``None`` for missing
-expressions.
+slice object (see section :ref:`types`) whose :attr:`~slice.start`,
+:attr:`~slice.stop` and :attr:`~slice.step` attributes are the values of the
+expressions given as lower bound, upper bound and stride, respectively,
+substituting ``None`` for missing expressions.
 
+
+.. index::
+   object: callable
+   single: call
+   single: argument; call semantics
 
 .. _calls:
 
 Calls
 -----
 
-.. index:: single: call
-
-.. index:: object: callable
-
-A call calls a callable object (e.g., a function) with a possibly empty series
-of arguments:
+A call calls a callable object (e.g., a :term:`function`) with a possibly empty
+series of :term:`arguments <argument>`:
 
 .. productionlist::
    call: `primary` "(" [`argument_list` [","]
@@ -680,7 +688,7 @@ of arguments:
                 :   ["," "**" `expression`]
                 : | `keyword_arguments` ["," "*" `expression`]
                 :   ["," "**" `expression`]
-                : | "*" `expression` ["," "*" `expression`] ["," "**" `expression`]
+                : | "*" `expression` ["," `keyword_arguments`] ["," "**" `expression`]
                 : | "**" `expression`
    positional_arguments: `expression` ("," `expression`)*
    keyword_arguments: `keyword_item` ("," `keyword_item`)*
@@ -689,12 +697,15 @@ of arguments:
 A trailing comma may be present after the positional and keyword arguments but
 does not affect the semantics.
 
+.. index::
+   single: parameter; call semantics
+
 The primary must evaluate to a callable object (user-defined functions, built-in
 functions, methods of built-in objects, class objects, methods of class
 instances, and certain class instances themselves are callable; extensions may
 define additional callable object types).  All argument expressions are
 evaluated before the call is attempted.  Please refer to section :ref:`function`
-for the syntax of formal parameter lists.
+for the syntax of formal :term:`parameter` lists.
 
 If keyword arguments are present, they are first converted to positional
 arguments, as follows.  First, a list of unfilled slots is created for the
@@ -719,7 +730,7 @@ the call.
    An implementation may provide built-in functions whose positional parameters
    do not have names, even if they are 'named' for the purpose of documentation,
    and which therefore cannot be supplied by keyword.  In CPython, this is the
-   case for functions implemented in C that use :cfunc:`PyArg_ParseTuple` to
+   case for functions implemented in C that use :c:func:`PyArg_ParseTuple` to
    parse their arguments.
 
 If there are more positional arguments than there are formal parameter slots, a
@@ -735,12 +746,15 @@ dictionary containing the excess keyword arguments (using the keywords as keys
 and the argument values as corresponding values), or a (new) empty dictionary if
 there were no excess keyword arguments.
 
+.. index::
+   single: *; in function calls
+
 If the syntax ``*expression`` appears in the function call, ``expression`` must
-evaluate to a sequence.  Elements from this sequence are treated as if they were
-additional positional arguments; if there are positional arguments *x1*,...,
-*xN*, and ``expression`` evaluates to a sequence *y1*, ..., *yM*, this is
-equivalent to a call with M+N positional arguments *x1*, ..., *xN*, *y1*, ...,
-*yM*.
+evaluate to an iterable.  Elements from this iterable are treated as if they
+were additional positional arguments; if there are positional arguments
+*x1*, ..., *xN*, and ``expression`` evaluates to a sequence *y1*, ..., *yM*, this
+is equivalent to a call with M+N positional arguments *x1*, ..., *xN*, *y1*,
+..., *yM*.
 
 A consequence of this is that although the ``*expression`` syntax may appear
 *after* some keyword arguments, it is processed *before* the keyword arguments
@@ -760,6 +774,9 @@ A consequence of this is that although the ``*expression`` syntax may appear
 
 It is unusual for both keyword arguments and the ``*expression`` syntax to be
 used in the same call, so in practice this confusion does not arise.
+
+.. index::
+   single: **; in function calls
 
 If the syntax ``**expression`` appears in the function call, ``expression`` must
 evaluate to a mapping, the contents of which are treated as additional keyword
@@ -1042,9 +1059,9 @@ must be plain or long integers.  The arguments are converted to a common type.
 
 .. _comparisons:
 .. _is:
-.. _isnot:
+.. _is not:
 .. _in:
-.. _notin:
+.. _not in:
 
 Comparisons
 ===========
@@ -1239,7 +1256,7 @@ Conditional Expressions
 
 .. productionlist::
    conditional_expression: `or_test` ["if" `or_test` "else" `expression`]
-   expression: `conditional_expression` | `lambda_form`
+   expression: `conditional_expression` | `lambda_expr`
 
 Conditional expressions (sometimes called a "ternary operator") have the lowest
 priority of all Python operations.
@@ -1259,14 +1276,13 @@ Lambdas
 
 .. index::
    pair: lambda; expression
-   pair: lambda; form
    pair: anonymous; function
 
 .. productionlist::
-   lambda_form: "lambda" [`parameter_list`]: `expression`
-   old_lambda_form: "lambda" [`parameter_list`]: `old_expression`
+   lambda_expr: "lambda" [`parameter_list`]: `expression`
+   old_lambda_expr: "lambda" [`parameter_list`]: `old_expression`
 
-Lambda forms (lambda expressions) have the same syntactic position as
+Lambda expressions (sometimes called lambda forms) have the same syntactic position as
 expressions.  They are a shorthand to create anonymous functions; the expression
 ``lambda arguments: expression`` yields a function object.  The unnamed object
 behaves like a function object defined with ::
@@ -1275,7 +1291,7 @@ behaves like a function object defined with ::
        return expression
 
 See section :ref:`function` for the syntax of parameter lists.  Note that
-functions created with lambda forms cannot contain statements.
+functions created with lambda expressions cannot contain statements.
 
 
 .. _exprlists:
@@ -1326,8 +1342,8 @@ their suffixes::
 
 .. _operator-summary:
 
-Summary
-=======
+Operator precedence
+===================
 
 .. index:: pair: operator; precedence
 
@@ -1350,10 +1366,10 @@ groups from right to left).
 +-----------------------------------------------+-------------------------------------+
 | :keyword:`and`                                | Boolean AND                         |
 +-----------------------------------------------+-------------------------------------+
-| :keyword:`not` *x*                            | Boolean NOT                         |
+| :keyword:`not` ``x``                          | Boolean NOT                         |
 +-----------------------------------------------+-------------------------------------+
-| :keyword:`in`, :keyword:`not` :keyword:`in`,  | Comparisons, including membership   |
-| :keyword:`is`, :keyword:`is not`, ``<``,      | tests and identity tests,           |
+| :keyword:`in`, :keyword:`not in`,             | Comparisons, including membership   |
+| :keyword:`is`, :keyword:`is not`, ``<``,      | tests and identity tests            |
 | ``<=``, ``>``, ``>=``, ``<>``, ``!=``, ``==`` |                                     |
 +-----------------------------------------------+-------------------------------------+
 | ``|``                                         | Bitwise OR                          |
@@ -1367,6 +1383,7 @@ groups from right to left).
 | ``+``, ``-``                                  | Addition and subtraction            |
 +-----------------------------------------------+-------------------------------------+
 | ``*``, ``/``, ``//``, ``%``                   | Multiplication, division, remainder |
+|                                               | [#]_                                |
 +-----------------------------------------------+-------------------------------------+
 | ``+x``, ``-x``, ``~x``                        | Positive, negative, bitwise NOT     |
 +-----------------------------------------------+-------------------------------------+
@@ -1377,7 +1394,7 @@ groups from right to left).
 +-----------------------------------------------+-------------------------------------+
 | ``(expressions...)``,                         | Binding or tuple display,           |
 | ``[expressions...]``,                         | list display,                       |
-| ``{key:datum...}``,                           | dictionary display,                 |
+| ``{key: value...}``,                          | dictionary display,                 |
 | ```expressions...```                          | string conversion                   |
 +-----------------------------------------------+-------------------------------------+
 
@@ -1385,14 +1402,14 @@ groups from right to left).
 
 .. [#] In Python 2.3 and later releases, a list comprehension "leaks" the control
    variables of each ``for`` it contains into the containing scope.  However, this
-   behavior is deprecated, and relying on it will not work in Python 3.0
+   behavior is deprecated, and relying on it will not work in Python 3.
 
 .. [#] While ``abs(x%y) < abs(y)`` is true mathematically, for floats it may not be
    true numerically due to roundoff.  For example, and assuming a platform on which
    a Python float is an IEEE 754 double-precision number, in order that ``-1e-100 %
    1e100`` have the same sign as ``1e100``, the computed result is ``-1e-100 +
-   1e100``, which is numerically exactly equal to ``1e100``.  Function :func:`fmod`
-   in the :mod:`math` module returns a result whose sign matches the sign of the
+   1e100``, which is numerically exactly equal to ``1e100``.  The function
+   :func:`math.fmod` returns a result whose sign matches the sign of the
    first argument instead, and so returns ``-1e-100`` in this case. Which approach
    is more appropriate depends on the application.
 
@@ -1421,6 +1438,9 @@ groups from right to left).
    descriptors, you may notice seemingly unusual behaviour in certain uses of
    the :keyword:`is` operator, like those involving comparisons between instance
    methods, or constants.  Check their documentation for more info.
+
+.. [#] The ``%`` operator is also used for string formatting; the same
+   precedence applies.
 
 .. [#] The power operator ``**`` binds less tightly than an arithmetic or
    bitwise unary operator on its right, that is, ``2**-1`` is ``0.5``.

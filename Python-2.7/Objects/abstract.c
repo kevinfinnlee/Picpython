@@ -126,7 +126,7 @@ _PyObject_LengthHint(PyObject *o, Py_ssize_t defaultvalue)
         PyErr_Clear();
         return defaultvalue;
     }
-    rv = PyLong_Check(ro) ? PyLong_AsSsize_t(ro) : defaultvalue;
+    rv = PyNumber_Check(ro) ? PyInt_AsSsize_t(ro) : defaultvalue;
     Py_DECREF(ro);
     return rv;
 }
@@ -156,7 +156,7 @@ PyObject_GetItem(PyObject *o, PyObject *key)
                               "be integer, not '%.200s'", key);
     }
 
-    return type_error("'%.200s' object is not subscriptable", o);
+    return type_error("'%.200s' object has no attribute '__getitem__'", o);
 }
 
 int
@@ -443,7 +443,7 @@ PyBuffer_GetPointer(Py_buffer *view, Py_ssize_t *indices)
 
 
 void
-_add_one_to_index_F(int nd, Py_ssize_t *index, Py_ssize_t *shape)
+_Py_add_one_to_index_F(int nd, Py_ssize_t *index, const Py_ssize_t *shape)
 {
     int k;
 
@@ -459,7 +459,7 @@ _add_one_to_index_F(int nd, Py_ssize_t *index, Py_ssize_t *shape)
 }
 
 void
-_add_one_to_index_C(int nd, Py_ssize_t *index, Py_ssize_t *shape)
+_Py_add_one_to_index_C(int nd, Py_ssize_t *index, const Py_ssize_t *shape)
 {
     int k;
 
@@ -483,7 +483,7 @@ int
 PyBuffer_ToContiguous(void *buf, Py_buffer *view, Py_ssize_t len, char fort)
 {
     int k;
-    void (*addone)(int, Py_ssize_t *, Py_ssize_t *);
+    void (*addone)(int, Py_ssize_t *, const Py_ssize_t *);
     Py_ssize_t *indices, elements;
     char *dest, *ptr;
 
@@ -510,10 +510,10 @@ PyBuffer_ToContiguous(void *buf, Py_buffer *view, Py_ssize_t len, char fort)
     }
 
     if (fort == 'F') {
-        addone = _add_one_to_index_F;
+        addone = _Py_add_one_to_index_F;
     }
     else {
-        addone = _add_one_to_index_C;
+        addone = _Py_add_one_to_index_C;
     }
     dest = buf;
     /* XXX : This is not going to be the fastest code in the world
@@ -534,7 +534,7 @@ int
 PyBuffer_FromContiguous(Py_buffer *view, void *buf, Py_ssize_t len, char fort)
 {
     int k;
-    void (*addone)(int, Py_ssize_t *, Py_ssize_t *);
+    void (*addone)(int, Py_ssize_t *, const Py_ssize_t *);
     Py_ssize_t *indices, elements;
     char *src, *ptr;
 
@@ -561,10 +561,10 @@ PyBuffer_FromContiguous(Py_buffer *view, void *buf, Py_ssize_t len, char fort)
     }
 
     if (fort == 'F') {
-        addone = _add_one_to_index_F;
+        addone = _Py_add_one_to_index_F;
     }
     else {
-        addone = _add_one_to_index_C;
+        addone = _Py_add_one_to_index_C;
     }
     src = buf;
     /* XXX : This is not going to be the fastest code in the world
@@ -641,7 +641,7 @@ int PyObject_CopyData(PyObject *dest, PyObject *src)
         elements *= view_src.shape[k];
     }
     while (elements--) {
-        _add_one_to_index_C(view_src.ndim, indices, view_src.shape);
+        _Py_add_one_to_index_C(view_src.ndim, indices, view_src.shape);
         dptr = PyBuffer_GetPointer(&view_dest, indices);
         sptr = PyBuffer_GetPointer(&view_src, indices);
         memcpy(dptr, sptr, view_src.itemsize);
@@ -1713,7 +1713,14 @@ PyNumber_Long(PyObject *o)
     if (m && m->nb_long) { /* This should include subclasses of long */
         /* Classic classes always take this branch. */
         PyObject *res = m->nb_long(o);
-        if (res && (!PyInt_Check(res) && !PyLong_Check(res))) {
+        if (res == NULL)
+            return NULL;
+        if (PyInt_Check(res)) {
+            long value = PyInt_AS_LONG(res);
+            Py_DECREF(res);
+            return PyLong_FromLong(value);
+        }
+        else if (!PyLong_Check(res)) {
             PyErr_Format(PyExc_TypeError,
                          "__long__ returned non-long (type %.200s)",
                          res->ob_type->tp_name);
@@ -2610,10 +2617,8 @@ PyObject_CallMethod(PyObject *o, char *name, char *format, ...)
         return null_error();
 
     func = PyObject_GetAttrString(o, name);
-    if (func == NULL) {
-        PyErr_SetString(PyExc_AttributeError, name);
-        return 0;
-    }
+    if (func == NULL)
+        return NULL;
 
     if (!PyCallable_Check(func)) {
         type_error("attribute of type '%.200s' is not callable", func);
@@ -2649,10 +2654,8 @@ _PyObject_CallMethod_SizeT(PyObject *o, char *name, char *format, ...)
         return null_error();
 
     func = PyObject_GetAttrString(o, name);
-    if (func == NULL) {
-        PyErr_SetString(PyExc_AttributeError, name);
-        return 0;
-    }
+    if (func == NULL)
+        return NULL;
 
     if (!PyCallable_Check(func)) {
         type_error("attribute of type '%.200s' is not callable", func);
