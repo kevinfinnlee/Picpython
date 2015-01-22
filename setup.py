@@ -35,7 +35,7 @@ def build(package):
     os.chdir("./" + package)
     configure(package)
 
-    os.system("make")
+    os.system("make all")
     os.system("make install")
 
     if package.startswith("jpeg"):
@@ -93,7 +93,7 @@ def set_environment_vars():
     os.environ["GEOS_DIR"] = sys.argv[1]
     os.environ["HDF5_DIR"] = sys.argv[1]
     os.environ["PKG_CONFIG_PATH"] = sys.argv[1] + "/lib/pkgconfig"
-    os.environ["CFLAGS"] = "-Wall -O -funroll-loops -falign-loops=2 -falign-functions=2"
+    os.environ["CFLAGS"] = "-Wall -O -funroll-loops -falign-functions=2"
     os.environ["LD_LIBRARY_PATH"] = sys.argv[1] + "/lib"
 
 def make_bin_dir():
