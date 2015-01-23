@@ -219,7 +219,7 @@ PyDoc_STRVAR(exit_doc,
 \n\
 Exit the interpreter by raising SystemExit(status).\n\
 If the status is omitted or None, it defaults to zero (i.e., success).\n\
-If the status is numeric, it will be used as the system exit status.\n\
+If the status is an integer, it will be used as the system exit status.\n\
 If it is another kind of object, it will be printed and the system\n\
 exit status will be one (i.e., failure)."
 );
@@ -367,8 +367,7 @@ trace_trampoline(PyObject *self, PyFrameObject *frame,
     result = call_trampoline(tstate, callback, frame, what, arg);
     if (result == NULL) {
         PyEval_SetTrace(NULL, NULL);
-        Py_XDECREF(frame->f_trace);
-        frame->f_trace = NULL;
+        Py_CLEAR(frame->f_trace);
         return -1;
     }
     if (result != Py_None) {
@@ -466,6 +465,7 @@ sys_setcheckinterval(PyObject *self, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, "i:setcheckinterval", &_Py_CheckInterval))
         return NULL;
+    _Py_Ticker = _Py_CheckInterval;
     Py_INCREF(Py_None);
     return Py_None;
 }
@@ -560,7 +560,7 @@ PyDoc_STRVAR(getwindowsversion_doc,
 Return information about the running version of Windows as a named tuple.\n\
 The members are named: major, minor, build, platform, service_pack,\n\
 service_pack_major, service_pack_minor, suite_mask, and product_type. For\n\
-backward compatibiliy, only the first 5 items are available by indexing.\n\
+backward compatibility, only the first 5 items are available by indexing.\n\
 All elements are numbers, except service_pack which is a string. Platform\n\
 may be 0 for win32s, 1 for Windows 9x/ME, 2 for Windows NT/2000/XP/Vista/7,\n\
 3 for Windows CE. Product_type may be 1 for a workstation, 2 for a domain\n\
@@ -615,6 +615,10 @@ sys_getwindowsversion(PyObject *self)
     PyStructSequence_SET_ITEM(version, pos++, PyInt_FromLong(ver.wSuiteMask));
     PyStructSequence_SET_ITEM(version, pos++, PyInt_FromLong(ver.wProductType));
 
+    if (PyErr_Occurred()) {
+        Py_DECREF(version);
+        return NULL;
+    }
     return version;
 }
 
@@ -680,32 +684,20 @@ sys_mdebug(PyObject *self, PyObject *args)
 }
 #endif /* USE_MALLOPT */
 
-static PyObject *
-sys_getsizeof(PyObject *self, PyObject *args, PyObject *kwds)
+size_t
+_PySys_GetSizeOf(PyObject *o)
 {
+    static PyObject *str__sizeof__ = NULL;
     PyObject *res = NULL;
-    static PyObject *str__sizeof__ = NULL, *gc_head_size = NULL;
-    static char *kwlist[] = {"object", "default", 0};
-    PyObject *o, *dflt = NULL;
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O:getsizeof",
-                                     kwlist, &o, &dflt))
-        return NULL;
-
-    /* Initialize static variable for GC head size */
-    if (gc_head_size == NULL) {
-        gc_head_size = PyInt_FromSsize_t(sizeof(PyGC_Head));
-        if (gc_head_size == NULL)
-            return NULL;
-    }
+    Py_ssize_t size;
 
     /* Make sure the type is initialized. float gets initialized late */
     if (PyType_Ready(Py_TYPE(o)) < 0)
-        return NULL;
+        return (size_t)-1;
 
     /* Instance of old-style class */
     if (PyInstance_Check(o))
-        res = PyInt_FromSsize_t(PyInstance_Type.tp_basicsize);
+        size = PyInstance_Type.tp_basicsize;
     /* all other objects */
     else {
         PyObject *method = _PyObject_LookupSpecial(o, "__sizeof__",
@@ -720,26 +712,52 @@ sys_getsizeof(PyObject *self, PyObject *args, PyObject *kwds)
             res = PyObject_CallFunctionObjArgs(method, NULL);
             Py_DECREF(method);
         }
+
+        if (res == NULL)
+            return (size_t)-1;
+
+        size = (size_t)PyInt_AsSsize_t(res);
+        Py_DECREF(res);
+        if (size == -1 && PyErr_Occurred())
+            return (size_t)-1;
     }
 
-    /* Has a default value been given? */
-    if ((res == NULL) && (dflt != NULL) &&
-        PyErr_ExceptionMatches(PyExc_TypeError))
-    {
-        PyErr_Clear();
-        Py_INCREF(dflt);
-        return dflt;
+    if (size < 0) {
+        PyErr_SetString(PyExc_ValueError, "__sizeof__() should return >= 0");
+        return (size_t)-1;
     }
-    else if (res == NULL)
-        return res;
 
     /* add gc_head size */
-    if (PyObject_IS_GC(o)) {
-        PyObject *tmp = res;
-        res = PyNumber_Add(tmp, gc_head_size);
-        Py_DECREF(tmp);
+    if (PyObject_IS_GC(o))
+        return ((size_t)size) + sizeof(PyGC_Head);
+    return (size_t)size;
+}
+
+static PyObject *
+sys_getsizeof(PyObject *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"object", "default", 0};
+    size_t size;
+    PyObject *o, *dflt = NULL;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|O:getsizeof",
+                                     kwlist, &o, &dflt))
+        return NULL;
+
+    size = _PySys_GetSizeOf(o);
+
+    if (size == (size_t)-1 && PyErr_Occurred()) {
+        /* Has a default value been given */
+        if (dflt != NULL && PyErr_ExceptionMatches(PyExc_TypeError)) {
+            PyErr_Clear();
+            Py_INCREF(dflt);
+            return dflt;
+        }
+        else
+            return NULL;
     }
-    return res;
+
+    return PyInt_FromSize_t(size);
 }
 
 PyDoc_STRVAR(getsizeof_doc,
@@ -1092,7 +1110,7 @@ version_info -- version information as a named tuple\n\
 hexversion -- version information encoded as a single integer\n\
 copyright -- copyright notice pertaining to this interpreter\n\
 platform -- platform identifier\n\
-executable -- pathname of this Python interpreter\n\
+executable -- absolute path of the executable binary of the Python interpreter\n\
 prefix -- prefix used to find the Python library\n\
 exec_prefix -- prefix used to find the machine-specific Python library\n\
 float_repr_style -- string indicating the style of repr() output for floats\n\
@@ -1143,8 +1161,6 @@ _check_and_flush (FILE *stream)
 }
 
 /* Subversion branch and revision management */
-static const char _patchlevel_revision[] = PY_PATCHLEVEL_REVISION;
-static const char headurl[] = "$HeadURL: http://svn.python.org/projects/python/tags/r27/Python/sysmodule.c $";
 static int svn_initialized;
 static char patchlevel_revision[50]; /* Just the number */
 static char branch[50];
@@ -1154,69 +1170,14 @@ static const char *svn_revision;
 static void
 svnversion_init(void)
 {
-    const char *python, *br_start, *br_end, *br_end2, *svnversion;
-    Py_ssize_t len;
-    int istag;
-
     if (svn_initialized)
         return;
-
-    python = strstr(headurl, "/python/");
-    if (!python) {
-        /* XXX quick hack to get bzr working */
-        *patchlevel_revision = '\0';
-        strcpy(branch, "");
-        strcpy(shortbranch, "unknown");
-        svn_revision = "";
-        return;
-        /* Py_FatalError("subversion keywords missing"); */
-    }
-
-    br_start = python + 8;
-    br_end = strchr(br_start, '/');
-    assert(br_end);
-
-    /* Works even for trunk,
-       as we are in trunk/Python/sysmodule.c */
-    br_end2 = strchr(br_end+1, '/');
-
-    istag = strncmp(br_start, "tags", 4) == 0;
-    if (strncmp(br_start, "trunk", 5) == 0) {
-        strcpy(branch, "trunk");
-        strcpy(shortbranch, "trunk");
-
-    }
-    else if (istag || strncmp(br_start, "branches", 8) == 0) {
-        len = br_end2 - br_start;
-        strncpy(branch, br_start, len);
-        branch[len] = '\0';
-
-        len = br_end2 - (br_end + 1);
-        strncpy(shortbranch, br_end + 1, len);
-        shortbranch[len] = '\0';
-    }
-    else {
-        Py_FatalError("bad HeadURL");
-        return;
-    }
-
-
-    svnversion = _Py_svnversion();
-    if (strcmp(svnversion, "Unversioned directory") != 0 && strcmp(svnversion, "exported") != 0)
-        svn_revision = svnversion;
-    else if (istag) {
-        len = strlen(_patchlevel_revision);
-        assert(len >= 13);
-        assert(len < (sizeof(patchlevel_revision) + 13));
-        strncpy(patchlevel_revision, _patchlevel_revision + 11,
-            len - 13);
-        patchlevel_revision[len - 13] = '\0';
-        svn_revision = patchlevel_revision;
-    }
-    else
-        svn_revision = "";
-
     svn_initialized = 1;
+    *patchlevel_revision = '\0';
+    strcpy(branch, "");
+    strcpy(shortbranch, "unknown");
+    svn_revision = "";
+    return;
 }
 
 /* Return svnversion output if available.
@@ -1265,6 +1226,7 @@ static PyStructSequence_Field flags_fields[] = {
     {"unicode",                 "-U"},
     /* {"skip_first",                   "-x"}, */
     {"bytes_warning", "-b"},
+    {"hash_randomization", "-R"},
     {0}
 };
 
@@ -1273,9 +1235,9 @@ static PyStructSequence_Desc flags_desc = {
     flags__doc__,       /* doc */
     flags_fields,       /* fields */
 #ifdef RISCOS
-    16
+    17
 #else
-    15
+    16
 #endif
 };
 
@@ -1312,9 +1274,11 @@ make_flags(void)
     SetFlag(Py_UnicodeFlag);
     /* SetFlag(skipfirstline); */
     SetFlag(Py_BytesWarningFlag);
+    SetFlag(Py_HashRandomizationFlag);
 #undef SetFlag
 
     if (PyErr_Occurred()) {
+        Py_DECREF(seq);
         return NULL;
     }
     return seq;
@@ -1462,6 +1426,9 @@ _PySys_Init(void)
     SET_SYS_FROM_STRING("subversion",
                          Py_BuildValue("(ssz)", "CPython", branch,
                                       svn_revision));
+    SET_SYS_FROM_STRING("_mercurial",
+                        Py_BuildValue("(szz)", "CPython", _Py_hgidentifier(),
+                                      _Py_hgversion()));
     SET_SYS_FROM_STRING("dont_write_bytecode",
                          PyBool_FromLong(Py_DontWriteBytecodeFlag));
     SET_SYS_FROM_STRING("api_version",

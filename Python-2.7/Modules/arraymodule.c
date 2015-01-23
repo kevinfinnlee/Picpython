@@ -798,7 +798,7 @@ array_iter_extend(arrayobject *self, PyObject *bb)
         return -1;
 
     while ((v = PyIter_Next(it)) != NULL) {
-        if (ins1(self, (int) Py_SIZE(self), v) != 0) {
+        if (ins1(self, Py_SIZE(self), v) != 0) {
             Py_DECREF(v);
             Py_DECREF(it);
             return -1;
@@ -1090,7 +1090,7 @@ the buffer length in bytes.");
 static PyObject *
 array_append(arrayobject *self, PyObject *v)
 {
-    return ins(self, (int) Py_SIZE(self), v);
+    return ins(self, Py_SIZE(self), v);
 }
 
 PyDoc_STRVAR(append_doc,
@@ -1228,8 +1228,14 @@ array_fromfile(arrayobject *self, PyObject *args)
             PyMem_RESIZE(item, char, Py_SIZE(self)*itemsize);
             self->ob_item = item;
             self->allocated = Py_SIZE(self);
-            PyErr_SetString(PyExc_EOFError,
-                             "not enough items in file");
+            if (ferror(fp)) {
+                PyErr_SetFromErrno(PyExc_IOError);
+                clearerr(fp);
+            }
+            else {
+                PyErr_SetString(PyExc_EOFError,
+                                "not enough items in file");
+            }
             return NULL;
         }
     }
@@ -1527,6 +1533,19 @@ array_reduce(arrayobject *array)
 PyDoc_STRVAR(reduce_doc, "Return state information for pickling.");
 
 static PyObject *
+array_sizeof(arrayobject *self, PyObject *unused)
+{
+    Py_ssize_t res;
+    res = sizeof(arrayobject) + self->allocated * self->ob_descr->itemsize;
+    return PyLong_FromSsize_t(res);
+}
+
+PyDoc_STRVAR(sizeof_doc,
+"__sizeof__() -> int\n\
+\n\
+Size of the array in memory, in bytes.");
+
+static PyObject *
 array_get_typecode(arrayobject *a, void *closure)
 {
     char tc = a->ob_descr->typecode;
@@ -1600,6 +1619,8 @@ static PyMethodDef array_methods[] = {
 #endif
     {"write",           (PyCFunction)array_tofile_as_write,     METH_O,
      tofile_doc},
+    {"__sizeof__",      (PyCFunction)array_sizeof,      METH_NOARGS,
+     sizeof_doc},
     {NULL,              NULL}           /* sentinel */
 };
 
@@ -2044,7 +2065,7 @@ PyDoc_STRVAR(arraytype_doc,
 \n\
 Return a new array whose items are restricted by typecode, and\n\
 initialized from the optional initializer value, which must be a list,\n\
-string. or iterable over elements of the appropriate type.\n\
+string or iterable over elements of the appropriate type.\n\
 \n\
 Arrays represent basic values and behave very much like lists, except\n\
 the type of objects stored in them is constrained.\n\

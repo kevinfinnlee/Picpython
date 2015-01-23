@@ -51,8 +51,7 @@ Notes:
    of the standard Python library since Python 1.6)
 
 (4)
-   requires the :program:`compress` program. Notice that this format is now
-   pending for deprecation and will be removed in the future versions of Python.
+   requires the :program:`compress` program.
 
 When using any ``tar`` format (``gztar``, ``bztar``, ``ztar`` or
 ``tar``) under Unix, you can specify the ``owner`` and ``group`` names
@@ -72,16 +71,16 @@ If you don't supply an explicit list of files (or instructions on how to
 generate one), the :command:`sdist` command puts a minimal default set into the
 source distribution:
 
-* all Python source files implied by the :option:`py_modules` and
-  :option:`packages` options
+* all Python source files implied by the ``py_modules`` and
+  ``packages`` options
 
-* all C source files mentioned in the :option:`ext_modules` or
-  :option:`libraries` options (
+* all C source files mentioned in the ``ext_modules`` or
+  ``libraries`` options
 
-  **\*\*** getting C library sources currently broken---no
-  :meth:`get_source_files` method in :file:`build_clib.py`! **\*\***)
+  .. XXX Getting C library sources is currently broken -- no
+     :meth:`get_source_files` method in :file:`build_clib.py`!
 
-* scripts identified by the :option:`scripts` option
+* scripts identified by the ``scripts`` option
   See :ref:`distutils-installing-scripts`.
 
 * anything that looks like a test script: :file:`test/test\*.py` (currently, the
@@ -111,7 +110,21 @@ per line, regular files (or symlinks to them) only.  If you do supply your own
 :file:`MANIFEST`, you must specify everything: the default set of files
 described above does not apply in this case.
 
+.. versionchanged:: 2.7
+   An existing generated :file:`MANIFEST` will be regenerated without
+   :command:`sdist` comparing its modification time to the one of
+   :file:`MANIFEST.in` or :file:`setup.py`.
+
+.. versionchanged:: 2.7.1
+   :file:`MANIFEST` files start with a comment indicating they are generated.
+   Files without this comment are not overwritten or removed.
+
+.. versionchanged:: 2.7.3
+   :command:`sdist` will read a :file:`MANIFEST` file if no :file:`MANIFEST.in`
+   exists, like it did before 2.7.
+
 See :ref:`manifest_template` section for a syntax reference.
+
 
 .. _manifest-options:
 
@@ -120,15 +133,15 @@ Manifest-related options
 
 The normal course of operations for the :command:`sdist` command is as follows:
 
-* if the manifest file, :file:`MANIFEST` doesn't exist, read :file:`MANIFEST.in`
-  and create the manifest
+* if the manifest file (:file:`MANIFEST` by default) exists and the first line
+  does not have a comment indicating it is generated from :file:`MANIFEST.in`,
+  then it is used as is, unaltered
+
+* if the manifest file doesn't exist or has been previously automatically
+  generated, read :file:`MANIFEST.in` and create the manifest
 
 * if neither :file:`MANIFEST` nor :file:`MANIFEST.in` exist, create a manifest
   with just the default file set
-
-* if either :file:`MANIFEST.in` or the setup script (:file:`setup.py`) are more
-  recent than :file:`MANIFEST`, recreate :file:`MANIFEST` by reading
-  :file:`MANIFEST.in`
 
 * use the list of files now in :file:`MANIFEST` (either just generated or read
   in) to create the source distribution archive(s)
@@ -142,7 +155,7 @@ source distribution::
 
    python setup.py sdist --manifest-only
 
-:option:`-o` is a sortcut for :option:`--manifest-only`.
+:option:`-o` is a shortcut for :option:`--manifest-only`.
 
 .. _manifest_template:
 
@@ -202,7 +215,7 @@ source distribution:
 
 #. include all Python source files in the :file:`distutils` and
    :file:`distutils/command` subdirectories (because packages corresponding to
-   those two directories were mentioned in the :option:`packages` option in the
+   those two directories were mentioned in the ``packages`` option in the
    setup script---see section :ref:`setup-script`)
 
 #. include :file:`README.txt`, :file:`setup.py`, and :file:`setup.cfg` (standard
@@ -267,4 +280,3 @@ character, and ``[range]`` matches any of the characters in *range* (e.g.,
 ``a-z``, ``a-zA-Z``, ``a-f0-9_.``).  The definition of "regular filename
 character" is platform-specific: on Unix it is anything except slash; on Windows
 anything except backslash or colon.
-

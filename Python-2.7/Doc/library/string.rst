@@ -7,6 +7,10 @@
 
 .. index:: module: re
 
+**Source code:** :source:`Lib/string.py`
+
+--------------
+
 The :mod:`string` module contains a number of useful constants and
 classes, as well as some deprecated legacy functions that are also
 available as methods on strings. In addition, Python's built-in string
@@ -16,7 +20,6 @@ in the :ref:`string-methods` section. To output formatted strings use
 template strings or the ``%`` operator described in the
 :ref:`string-formatting` section. Also, see the :mod:`re` module for
 string functions based on regular expressions.
-
 
 String constants
 ----------------
@@ -118,10 +121,10 @@ string formatting behaviors using the same implementation as the built-in
 
    The :class:`Formatter` class has the following public methods:
 
-   .. method:: format(format_string, *args, *kwargs)
+   .. method:: format(format_string, *args, **kwargs)
 
-      :meth:`format` is the primary API method.  It takes a format template
-      string, and an arbitrary set of positional and keyword argument.
+      :meth:`format` is the primary API method.  It takes a format string and
+      an arbitrary set of positional and keyword arguments.
       :meth:`format` is just a wrapper that calls :meth:`vformat`.
 
    .. method:: vformat(format_string, args, kwargs)
@@ -129,9 +132,9 @@ string formatting behaviors using the same implementation as the built-in
       This function does the actual work of formatting.  It is exposed as a
       separate function for cases where you want to pass in a predefined
       dictionary of arguments, rather than unpacking and repacking the
-      dictionary as individual arguments using the ``*args`` and ``**kwds``
-      syntax.  :meth:`vformat` does the work of breaking up the format template
-      string into character data and replacement fields.  It calls the various
+      dictionary as individual arguments using the ``*args`` and ``**kwargs``
+      syntax.  :meth:`vformat` does the work of breaking up the format string
+      into character data and replacement fields.  It calls the various
       methods described below.
 
    In addition, the :class:`Formatter` defines a number of methods that are
@@ -141,7 +144,7 @@ string formatting behaviors using the same implementation as the built-in
 
       Loop over the format_string and return an iterable of tuples
       (*literal_text*, *field_name*, *format_spec*, *conversion*).  This is used
-      by :meth:`vformat` to break the string in to either literal text, or
+      by :meth:`vformat` to break the string into either literal text, or
       replacement fields.
 
       The values in the tuple conceptually represent a span of literal text
@@ -190,7 +193,7 @@ string formatting behaviors using the same implementation as the built-in
       the format string (integers for positional arguments, and strings for
       named arguments), and a reference to the *args* and *kwargs* that was
       passed to vformat.  The set of unused args can be calculated from these
-      parameters.  :meth:`check_unused_args` is assumed to throw an exception if
+      parameters.  :meth:`check_unused_args` is assumed to raise an exception if
       the check fails.
 
    .. method:: format_field(value, format_spec)
@@ -202,7 +205,8 @@ string formatting behaviors using the same implementation as the built-in
 
       Converts the value (returned by :meth:`get_field`) given a conversion type
       (as in the tuple returned by the :meth:`parse` method).  The default
-      version understands 'r' (repr) and 's' (str) conversion types.
+      version understands 's' (str), 'r' (repr) and 'a' (ascii) conversion
+      types.
 
 
 .. _formatstrings:
@@ -240,11 +244,13 @@ by a colon ``':'``.  These specify a non-default format for the replacement valu
 
 See also the :ref:`formatspec` section.
 
-The *field_name* itself begins with an *arg_name* that is either either a number or a
+The *field_name* itself begins with an *arg_name* that is either a number or a
 keyword.  If it's a number, it refers to a positional argument, and if it's a keyword,
 it refers to a named keyword argument.  If the numerical arg_names in a format string
 are 0, 1, 2, ... in sequence, they can all be omitted (not just some)
 and the numbers 0, 1, 2, ... will be automatically inserted in that order.
+Because *arg_name* is not quote-delimited, it is not possible to specify arbitrary
+dictionary keys (e.g., the strings ``'10'`` or ``':-]'``) within a format string.
 The *arg_name* can be followed by any number of index or
 attribute expressions. An expression of the form ``'.name'`` selects the named
 attribute using :func:`getattr`, while an expression of the form ``'[index]'``
@@ -317,18 +323,18 @@ The general form of a *standard format specifier* is:
 
 .. productionlist:: sf
    format_spec: [[`fill`]`align`][`sign`][#][0][`width`][,][.`precision`][`type`]
-   fill: <a character other than '}'>
+   fill: <any character>
    align: "<" | ">" | "=" | "^"
    sign: "+" | "-" | " "
    width: `integer`
    precision: `integer`
    type: "b" | "c" | "d" | "e" | "E" | "f" | "F" | "g" | "G" | "n" | "o" | "s" | "x" | "X" | "%"
 
-The *fill* character can be any character other than '}' (which signifies the
-end of the field).  The presence of a fill character is signaled by the *next*
-character, which must be one of the alignment options. If the second character
-of *format_spec* is not a valid alignment option, then it is assumed that both
-the fill character and the alignment option are absent.
+If a valid *align* value is specified, it can be preceded by a *fill*
+character that can be any character and defaults to a space if omitted.
+Note that it is not possible to use ``{`` and ``}`` as *fill* char while
+using the :meth:`str.format` method; this limitation however doesn't
+affect the :func:`format` function.
 
 The meaning of the various alignment options is as follows:
 
@@ -336,10 +342,10 @@ The meaning of the various alignment options is as follows:
    | Option  | Meaning                                                  |
    +=========+==========================================================+
    | ``'<'`` | Forces the field to be left-aligned within the available |
-   |         | space (this is the default).                             |
+   |         | space (this is the default for most objects).            |
    +---------+----------------------------------------------------------+
    | ``'>'`` | Forces the field to be right-aligned within the          |
-   |         | available space.                                         |
+   |         | available space (this is the default for numbers).       |
    +---------+----------------------------------------------------------+
    | ``'='`` | Forces the padding to be placed after the sign (if any)  |
    |         | but before the digits.  This is used for printing fields |
@@ -384,9 +390,9 @@ instead.
 *width* is a decimal integer defining the minimum field width.  If not
 specified, then the field width will be determined by the content.
 
-If the *width* field is preceded by a zero (``'0'``) character, this enables
-zero-padding.  This is equivalent to an *alignment* type of ``'='`` and a *fill*
-character of ``'0'``.
+Preceding the *width* field by a zero (``'0'``) character enables
+sign-aware zero-padding for numeric types.  This is equivalent to a *fill*
+character of ``'0'`` with an *alignment* type of ``'='``.
 
 The *precision* is a decimal number indicating how many digits should be
 displayed after the decimal point for a floating point value formatted with
@@ -447,12 +453,13 @@ The available presentation types for floating point and decimal values are:
    +=========+==========================================================+
    | ``'e'`` | Exponent notation. Prints the number in scientific       |
    |         | notation using the letter 'e' to indicate the exponent.  |
+   |         | The default precision is ``6``.                          |
    +---------+----------------------------------------------------------+
    | ``'E'`` | Exponent notation. Same as ``'e'`` except it uses an     |
    |         | upper case 'E' as the separator character.               |
    +---------+----------------------------------------------------------+
    | ``'f'`` | Fixed point. Displays the number as a fixed-point        |
-   |         | number.                                                  |
+   |         | number.  The default precision is ``6``.                 |
    +---------+----------------------------------------------------------+
    | ``'F'`` | Fixed point. Same as ``'f'``.                            |
    +---------+----------------------------------------------------------+
@@ -472,13 +479,13 @@ The available presentation types for floating point and decimal values are:
    |         | from the significand, and the decimal point is also      |
    |         | removed if there are no remaining digits following it.   |
    |         |                                                          |
-   |         | Postive and negative infinity, positive and negative     |
+   |         | Positive and negative infinity, positive and negative    |
    |         | zero, and nans, are formatted as ``inf``, ``-inf``,      |
    |         | ``0``, ``-0`` and ``nan`` respectively, regardless of    |
    |         | the precision.                                           |
    |         |                                                          |
    |         | A precision of ``0`` is treated as equivalent to a       |
-   |         | precision of ``1``.                                      |
+   |         | precision of ``1``.  The default precision is ``6``.     |
    +---------+----------------------------------------------------------+
    | ``'G'`` | General format. Same as ``'g'`` except switches to       |
    |         | ``'E'`` if the number gets too large. The                |
@@ -597,7 +604,7 @@ Expressing a percentage::
 
    >>> points = 19.5
    >>> total = 22
-   >>> 'Correct answers: {:.2%}.'.format(points/total)
+   >>> 'Correct answers: {:.2%}'.format(points/total)
    'Correct answers: 88.64%'
 
 Using type-specific formatting::
@@ -610,7 +617,7 @@ Using type-specific formatting::
 Nesting arguments and more complex examples::
 
    >>> for align, text in zip('<^>', ['left', 'center', 'right']):
-   ...     '{0:{align}{fill}16}'.format(text, fill=align, align=align)
+   ...     '{0:{fill}{align}16}'.format(text, fill=align, align=align)
    ...
    'left<<<<<<<<<<<<'
    '^^^^^center^^^^^'
@@ -701,7 +708,7 @@ these rules.  The methods of :class:`Template` are:
       This is the object passed to the constructor's *template* argument.  In
       general, you shouldn't change it, but read-only access is not enforced.
 
-Here is an example of how to use a Template:
+Here is an example of how to use a Template::
 
    >>> from string import Template
    >>> s = Template('$who likes $what')
@@ -710,11 +717,11 @@ Here is an example of how to use a Template:
    >>> d = dict(who='tim')
    >>> Template('Give $who $100').substitute(d)
    Traceback (most recent call last):
-   [...]
-   ValueError: Invalid placeholder in string: line 1, col 10
+   ...
+   ValueError: Invalid placeholder in string: line 1, col 11
    >>> Template('$who likes $what').substitute(d)
    Traceback (most recent call last):
-   [...]
+   ...
    KeyError: 'what'
    >>> Template('$who likes $what').safe_substitute(d)
    'tim likes $what'
@@ -724,9 +731,9 @@ placeholder syntax, delimiter character, or the entire regular expression used
 to parse template strings.  To do this, you can override these class attributes:
 
 * *delimiter* -- This is the literal string describing a placeholder introducing
-  delimiter.  The default value ``$``.  Note that this should *not* be a regular
-  expression, as the implementation will call :meth:`re.escape` on this string as
-  needed.
+  delimiter.  The default value is ``$``.  Note that this should *not* be a
+  regular expression, as the implementation will call :meth:`re.escape` on this
+  string as needed.
 
 * *idpattern* -- This is the regular expression describing the pattern for
   non-braced placeholders (the braces will be added automatically as
@@ -788,7 +795,7 @@ Deprecated string functions
 The following list of functions are also defined as methods of string and
 Unicode objects; see section :ref:`string-methods` for more information on
 those.  You should consider these functions as deprecated, although they will
-not be removed until Python 3.0.  The functions defined in this module are:
+not be removed until Python 3.  The functions defined in this module are:
 
 
 .. function:: atof(s)
@@ -900,14 +907,15 @@ not be removed until Python 3.0.  The functions defined in this module are:
 
    Return a list of the words of the string *s*.  If the optional second argument
    *sep* is absent or ``None``, the words are separated by arbitrary strings of
-   whitespace characters (space, tab,  newline, return, formfeed).  If the second
+   whitespace characters (space, tab, newline, return, formfeed).  If the second
    argument *sep* is present and not ``None``, it specifies a string to be used as
    the  word separator.  The returned list will then have one more item than the
-   number of non-overlapping occurrences of the separator in the string.  The
-   optional third argument *maxsplit* defaults to 0.  If it is nonzero, at most
-   *maxsplit* number of splits occur, and the remainder of the string is returned
-   as the final element of the list (thus, the list will have at most
-   ``maxsplit+1`` elements).
+   number of non-overlapping occurrences of the separator in the string.
+   If *maxsplit* is given, at most *maxsplit* number of splits occur, and the
+   remainder of the string is returned as the final element of the list (thus,
+   the list will have at most ``maxsplit+1`` elements).  If *maxsplit* is not
+   specified or ``-1``, then there is no limit on the number of splits (all
+   possible splits are made).
 
    The behavior of split on an empty string depends on the value of *sep*. If *sep*
    is not specified, or specified as ``None``, the result will be an empty list.
@@ -920,7 +928,7 @@ not be removed until Python 3.0.  The functions defined in this module are:
    Return a list of the words of the string *s*, scanning *s* from the end.  To all
    intents and purposes, the resulting list of words is the same as returned by
    :func:`split`, except when the optional third argument *maxsplit* is explicitly
-   specified and nonzero.  When *maxsplit* is nonzero, at most *maxsplit* number of
+   specified and nonzero.  If *maxsplit* is given, at most *maxsplit* number of
    splits -- the *rightmost* ones -- occur, and the remainder of the string is
    returned as the first element of the list (thus, the list will have at most
    ``maxsplit+1`` elements).
@@ -1018,13 +1026,14 @@ not be removed until Python 3.0.  The functions defined in this module are:
 
 .. function:: zfill(s, width)
 
-   Pad a numeric string on the left with zero digits until the given width is
-   reached.  Strings starting with a sign are handled correctly.
+   Pad a numeric string *s* on the left with zero digits until the
+   given *width* is reached.  Strings starting with a sign are handled
+   correctly.
 
 
-.. function:: replace(str, old, new[, maxreplace])
+.. function:: replace(s, old, new[, maxreplace])
 
-   Return a copy of string *str* with all occurrences of substring *old* replaced
+   Return a copy of string *s* with all occurrences of substring *old* replaced
    by *new*.  If the optional argument *maxreplace* is given, the first
    *maxreplace* occurrences are replaced.
 

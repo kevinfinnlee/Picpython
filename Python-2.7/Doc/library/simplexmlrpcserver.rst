@@ -8,11 +8,15 @@
 
 .. note::
    The :mod:`SimpleXMLRPCServer` module has been merged into
-   :mod:`xmlrpc.server` in Python 3.0.  The :term:`2to3` tool will automatically
-   adapt imports when converting your sources to 3.0.
+   :mod:`xmlrpc.server` in Python 3.  The :term:`2to3` tool will automatically
+   adapt imports when converting your sources to Python 3.
 
 
 .. versionadded:: 2.2
+
+**Source code:** :source:`Lib/SimpleXMLRPCServer.py`
+
+--------------
 
 The :mod:`SimpleXMLRPCServer` module provides a basic server framework for
 XML-RPC servers written in Python.  Servers can either be free standing, using
@@ -193,6 +197,38 @@ server::
    # Print list of available methods
    print s.system.listMethods()
 
+The following :class:`SimpleXMLRPCServer` example is included in the module
+`Lib/SimpleXMLRPCServer.py`::
+
+    server = SimpleXMLRPCServer(("localhost", 8000))
+    server.register_function(pow)
+    server.register_function(lambda x,y: x+y, 'add')
+    server.register_multicall_functions()
+    server.serve_forever()
+
+This demo server can be run from the command line as::
+
+    python -m SimpleXMLRPCServer
+
+Example client code which talks to the above server is included with
+`Lib/xmlrpclib.py`::
+
+    server = ServerProxy("http://localhost:8000")
+    print server
+    multi = MultiCall(server)
+    multi.pow(2, 9)
+    multi.add(5, 1)
+    multi.add(24, 11)
+    try:
+        for response in multi():
+            print response
+    except Error, v:
+        print "ERROR", v
+
+And the client can be invoked directly using the following command::
+
+    python -m xmlrpclib
+
 
 CGIXMLRPCRequestHandler
 -----------------------
@@ -243,7 +279,7 @@ requests sent to Python CGI scripts.
 Example::
 
    class MyFuncs:
-       def div(self, x, y) : return x // y
+       def div(self, x, y): return x // y
 
 
    handler = CGIXMLRPCRequestHandler()

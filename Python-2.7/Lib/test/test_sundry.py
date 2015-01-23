@@ -49,11 +49,9 @@ class TestUntestedModules(unittest.TestCase):
             import getpass
             import htmlentitydefs
             import ihooks
-            import imghdr
             import imputil
             import keyword
             import linecache
-            import macurl2path
             import mailcap
             import mimify
             import nntplib
@@ -65,7 +63,6 @@ class TestUntestedModules(unittest.TestCase):
             import pstats
             import py_compile
             import rexec
-            import rlcompleter
             import sched
             import sndhdr
             import statvfs

@@ -224,6 +224,7 @@ typedef struct {
 
 #ifdef WITH_THREAD
     PyThread_type_lock lock;
+    volatile long owner;
 #endif
 
     Py_ssize_t buffer_size;
@@ -259,17 +260,39 @@ typedef struct {
 /* These macros protect the buffered object against concurrent operations. */
 
 #ifdef WITH_THREAD
-#define ENTER_BUFFERED(self) \
-    if (!PyThread_acquire_lock(self->lock, 0)) { \
-        Py_BEGIN_ALLOW_THREADS \
-        PyThread_acquire_lock(self->lock, 1); \
-        Py_END_ALLOW_THREADS \
+
+static int
+_enter_buffered_busy(buffered *self)
+{
+    if (self->owner == PyThread_get_thread_ident()) {
+        PyObject *r = PyObject_Repr((PyObject *) self);
+        if (r != NULL) {
+            PyErr_Format(PyExc_RuntimeError,
+                         "reentrant call inside %s",
+                         PyString_AS_STRING(r));
+            Py_DECREF(r);
+        }
+        return 0;
     }
+    Py_BEGIN_ALLOW_THREADS
+    PyThread_acquire_lock(self->lock, 1);
+    Py_END_ALLOW_THREADS
+    return 1;
+}
+
+#define ENTER_BUFFERED(self) \
+    ( (PyThread_acquire_lock(self->lock, 0) ? \
+       1 : _enter_buffered_busy(self)) \
+     && (self->owner = PyThread_get_thread_ident(), 1) )
 
 #define LEAVE_BUFFERED(self) \
-    PyThread_release_lock(self->lock);
+    do { \
+        self->owner = 0; \
+        PyThread_release_lock(self->lock); \
+    } while(0);
+
 #else
-#define ENTER_BUFFERED(self)
+#define ENTER_BUFFERED(self) 1
 #define LEAVE_BUFFERED(self)
 #endif
 
@@ -363,6 +386,17 @@ buffered_dealloc(buffered *self)
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
+static PyObject *
+buffered_sizeof(buffered *self, void *unused)
+{
+    Py_ssize_t res;
+
+    res = sizeof(buffered);
+    if (self->buffer)
+        res += self->buffer_size;
+    return PyLong_FromSsize_t(res);
+}
+
 static int
 buffered_traverse(buffered *self, visitproc visit, void *arg)
 {
@@ -421,11 +455,12 @@ buffered_closed_get(buffered *self, void *context)
 static PyObject *
 buffered_close(buffered *self, PyObject *args)
 {
-    PyObject *res = NULL;
+    PyObject *res = NULL, *exc = NULL, *val, *tb;
     int r;
 
     CHECK_INITIALIZED(self)
-    ENTER_BUFFERED(self)
+    if (!ENTER_BUFFERED(self))
+        return NULL;
 
     r = buffered_closed(self);
     if (r < 0)
@@ -438,13 +473,26 @@ buffered_close(buffered *self, PyObject *args)
     /* flush() will most probably re-take the lock, so drop it first */
     LEAVE_BUFFERED(self)
     res = PyObject_CallMethodObjArgs((PyObject *)self, _PyIO_str_flush, NULL);
-    ENTER_BUFFERED(self)
-    if (res == NULL) {
-        goto end;
-    }
-    Py_XDECREF(res);
+    if (!ENTER_BUFFERED(self))
+        return NULL;
+    if (res == NULL)
+        PyErr_Fetch(&exc, &val, &tb);
+    else
+        Py_DECREF(res);
 
     res = PyObject_CallMethodObjArgs(self->raw, _PyIO_str_close, NULL);
+
+    if (exc != NULL) {
+        if (res != NULL) {
+            Py_CLEAR(res);
+            PyErr_Restore(exc, val, tb);
+        }
+        else {
+            Py_DECREF(exc);
+            Py_XDECREF(val);
+            Py_XDECREF(tb);
+        }
+    }
 
 end:
     LEAVE_BUFFERED(self)
@@ -525,7 +573,7 @@ buffered_isatty(buffered *self, PyObject *args)
 
 /* Forward decls */
 static PyObject *
-_bufferedwriter_flush_unlocked(buffered *, int);
+_bufferedwriter_flush_unlocked(buffered *);
 static Py_ssize_t
 _bufferedreader_fill_buffer(buffered *self);
 static void
@@ -545,6 +593,18 @@ _bufferedreader_read_generic(buffered *self, Py_ssize_t);
 /*
  * Helpers
  */
+
+/* Sets the current error to BlockingIOError */
+static void
+_set_BlockingIOError(char *msg, Py_ssize_t written)
+{
+    PyObject *err;
+    err = PyObject_CallFunction(PyExc_BlockingIOError, "isn",
+                                errno, msg, written);
+    if (err)
+        PyErr_SetObject(PyExc_BlockingIOError, err);
+    Py_XDECREF(err);
+}
 
 /* Returns the address of the `written` member if a BlockingIOError was
    raised, NULL otherwise. The error is always re-raised. */
@@ -636,11 +696,14 @@ _buffered_init(buffered *self)
         return -1;
     }
 #ifdef WITH_THREAD
+    if (self->lock)
+        PyThread_free_lock(self->lock);
     self->lock = PyThread_allocate_lock();
     if (self->lock == NULL) {
         PyErr_SetString(PyExc_RuntimeError, "can't allocate read lock");
         return -1;
     }
+    self->owner = 0;
 #endif
     /* Find out whether buffer_size is a power of 2 */
     /* XXX is this optimization useful? */
@@ -655,9 +718,64 @@ _buffered_init(buffered *self)
     return 0;
 }
 
+/* Return 1 if an EnvironmentError with errno == EINTR is set (and then
+   clears the error indicator), 0 otherwise.
+   Should only be called when PyErr_Occurred() is true.
+*/
+int
+_PyIO_trap_eintr(void)
+{
+    static PyObject *eintr_int = NULL;
+    PyObject *typ, *val, *tb;
+    PyEnvironmentErrorObject *env_err;
+
+    if (eintr_int == NULL) {
+        eintr_int = PyLong_FromLong(EINTR);
+        assert(eintr_int != NULL);
+    }
+    if (!PyErr_ExceptionMatches(PyExc_EnvironmentError))
+        return 0;
+    PyErr_Fetch(&typ, &val, &tb);
+    PyErr_NormalizeException(&typ, &val, &tb);
+    env_err = (PyEnvironmentErrorObject *) val;
+    assert(env_err != NULL);
+    if (env_err->myerrno != NULL &&
+        PyObject_RichCompareBool(env_err->myerrno, eintr_int, Py_EQ) > 0) {
+        Py_DECREF(typ);
+        Py_DECREF(val);
+        Py_XDECREF(tb);
+        return 1;
+    }
+    /* This silences any error set by PyObject_RichCompareBool() */
+    PyErr_Restore(typ, val, tb);
+    return 0;
+}
+
 /*
  * Shared methods and wrappers
  */
+
+static PyObject *
+buffered_flush_and_rewind_unlocked(buffered *self)
+{
+    PyObject *res;
+
+    res = _bufferedwriter_flush_unlocked(self);
+    if (res == NULL)
+        return NULL;
+    Py_DECREF(res);
+
+    if (self->readable) {
+        /* Rewind the raw stream so that its position corresponds to
+           the current logical position. */
+        Py_off_t n;
+        n = _buffered_raw_seek(self, -RAW_OFFSET(self), 1);
+        _bufferedreader_reset_buf(self);
+        if (n == -1)
+            return NULL;
+    }
+    Py_RETURN_NONE;
+}
 
 static PyObject *
 buffered_flush(buffered *self, PyObject *args)
@@ -667,17 +785,9 @@ buffered_flush(buffered *self, PyObject *args)
     CHECK_INITIALIZED(self)
     CHECK_CLOSED(self, "flush of closed file")
 
-    ENTER_BUFFERED(self)
-    res = _bufferedwriter_flush_unlocked(self, 0);
-    if (res != NULL && self->readable) {
-        /* Rewind the raw stream so that its position corresponds to
-           the current logical position. */
-        Py_off_t n;
-        n = _buffered_raw_seek(self, -RAW_OFFSET(self), 1);
-        if (n == -1)
-            Py_CLEAR(res);
-        _bufferedreader_reset_buf(self);
-    }
+    if (!ENTER_BUFFERED(self))
+        return NULL;
+    res = buffered_flush_and_rewind_unlocked(self);
     LEAVE_BUFFERED(self)
 
     return res;
@@ -694,10 +804,11 @@ buffered_peek(buffered *self, PyObject *args)
         return NULL;
     }
 
-    ENTER_BUFFERED(self)
+    if (!ENTER_BUFFERED(self))
+        return NULL;
 
     if (self->writable) {
-        res = _bufferedwriter_flush_unlocked(self, 1);
+        res = buffered_flush_and_rewind_unlocked(self);
         if (res == NULL)
             goto end;
         Py_CLEAR(res);
@@ -729,20 +840,21 @@ buffered_read(buffered *self, PyObject *args)
 
     if (n == -1) {
         /* The number of bytes is unspecified, read until the end of stream */
-        ENTER_BUFFERED(self)
+        if (!ENTER_BUFFERED(self))
+            return NULL;
         res = _bufferedreader_read_all(self);
-        LEAVE_BUFFERED(self)
     }
     else {
         res = _bufferedreader_read_fast(self, n);
-        if (res == Py_None) {
-            Py_DECREF(res);
-            ENTER_BUFFERED(self)
-            res = _bufferedreader_read_generic(self, n);
-            LEAVE_BUFFERED(self)
-        }
+        if (res != Py_None)
+            return res;
+        Py_DECREF(res);
+        if (!ENTER_BUFFERED(self))
+            return NULL;
+        res = _bufferedreader_read_generic(self, n);
     }
 
+    LEAVE_BUFFERED(self)
     return res;
 }
 
@@ -765,15 +877,9 @@ buffered_read1(buffered *self, PyObject *args)
     if (n == 0)
         return PyBytes_FromStringAndSize(NULL, 0);
 
-    ENTER_BUFFERED(self)
+    if (!ENTER_BUFFERED(self))
+        return NULL;
     
-    if (self->writable) {
-        res = _bufferedwriter_flush_unlocked(self, 1);
-        if (res == NULL)
-            goto end;
-        Py_CLEAR(res);
-    }
-
     /* Return up to n bytes.  If at least one byte is buffered, we
        only return buffered bytes.  Otherwise, we do one raw read. */
 
@@ -791,6 +897,13 @@ buffered_read1(buffered *self, PyObject *args)
             goto end;
         self->pos += n;
         goto end;
+    }
+
+    if (self->writable) {
+        res = buffered_flush_and_rewind_unlocked(self);
+        if (res == NULL)
+            goto end;
+        Py_DECREF(res);
     }
 
     /* Fill the buffer from the raw stream, and copy it to the result. */
@@ -815,23 +928,10 @@ end:
 static PyObject *
 buffered_readinto(buffered *self, PyObject *args)
 {
-    PyObject *res = NULL;
-
     CHECK_INITIALIZED(self)
     
-    /* TODO: use raw.readinto() instead! */
-    if (self->writable) {
-        ENTER_BUFFERED(self)
-        res = _bufferedwriter_flush_unlocked(self, 0);
-        LEAVE_BUFFERED(self)
-        if (res == NULL)
-            goto end;
-        Py_DECREF(res);
-    }
-    res = bufferediobase_readinto((PyObject *)self, args);
-
-end:
-    return res;
+    /* TODO: use raw.readinto() (or a direct copy from our buffer) instead! */
+    return bufferediobase_readinto((PyObject *)self, args);
 }
 
 static PyObject *
@@ -865,15 +965,10 @@ _buffered_readline(buffered *self, Py_ssize_t limit)
         goto end_unlocked;
     }
 
-    ENTER_BUFFERED(self)
+    if (!ENTER_BUFFERED(self))
+        goto end_unlocked;
 
     /* Now we try to get some more from the raw stream */
-    if (self->writable) {
-        res = _bufferedwriter_flush_unlocked(self, 1);
-        if (res == NULL)
-            goto end;
-        Py_CLEAR(res);
-    }
     chunks = PyList_New(0);
     if (chunks == NULL)
         goto end;
@@ -887,8 +982,15 @@ _buffered_readline(buffered *self, Py_ssize_t limit)
         }
         Py_CLEAR(res);
         written += n;
+        self->pos += n;
         if (limit >= 0)
             limit -= n;
+    }
+    if (self->writable) {
+        PyObject *r = buffered_flush_and_rewind_unlocked(self);
+        if (r == NULL)
+            goto end;
+        Py_DECREF(r);
     }
 
     for (;;) {
@@ -1015,11 +1117,12 @@ buffered_seek(buffered *self, PyObject *args)
         }
     }
 
-    ENTER_BUFFERED(self)
+    if (!ENTER_BUFFERED(self))
+        return NULL;
 
     /* Fallback: invoke raw seek() method and clear buffer */
     if (self->writable) {
-        res = _bufferedwriter_flush_unlocked(self, 0);
+        res = _bufferedwriter_flush_unlocked(self);
         if (res == NULL)
             goto end;
         Py_CLEAR(res);
@@ -1053,22 +1156,14 @@ buffered_truncate(buffered *self, PyObject *args)
         return NULL;
     }
 
-    ENTER_BUFFERED(self)
+    if (!ENTER_BUFFERED(self))
+        return NULL;
 
     if (self->writable) {
-        res = _bufferedwriter_flush_unlocked(self, 0);
+        res = buffered_flush_and_rewind_unlocked(self);
         if (res == NULL)
             goto end;
         Py_CLEAR(res);
-    }
-    if (self->readable) {
-        if (pos == Py_None) {
-            /* Rewind the raw stream so that its position corresponds to
-               the current logical position. */
-            if (_buffered_raw_seek(self, -RAW_OFFSET(self), 1) == -1)
-                goto end;
-        }
-        _bufferedreader_reset_buf(self);
     }
     res = PyObject_CallMethodObjArgs(self->raw, _PyIO_str_truncate, pos, NULL);
     if (res == NULL)
@@ -1206,7 +1301,14 @@ _bufferedreader_raw_read(buffered *self, char *start, Py_ssize_t len)
     memobj = PyMemoryView_FromBuffer(&buf);
     if (memobj == NULL)
         return -1;
-    res = PyObject_CallMethodObjArgs(self->raw, _PyIO_str_readinto, memobj, NULL);
+    /* NOTE: PyErr_SetFromErrno() calls PyErr_CheckSignals() when EINTR
+       occurs so we needn't do it ourselves.
+       We then retry reading, ignoring the signal if no handler has
+       raised (see issue #10956).
+    */
+    do {
+        res = PyObject_CallMethodObjArgs(self->raw, _PyIO_str_readinto, memobj, NULL);
+    } while (res == NULL && _PyIO_trap_eintr());
     Py_DECREF(memobj);
     if (res == NULL)
         return -1;
@@ -1264,17 +1366,18 @@ _bufferedreader_read_all(buffered *self)
             Py_DECREF(chunks);
             return NULL;
         }
+        self->pos += current_size;
     }
-    _bufferedreader_reset_buf(self);
     /* We're going past the buffer's bounds, flush it */
     if (self->writable) {
-        res = _bufferedwriter_flush_unlocked(self, 1);
+        res = buffered_flush_and_rewind_unlocked(self);
         if (res == NULL) {
             Py_DECREF(chunks);
             return NULL;
         }
         Py_CLEAR(res);
     }
+    _bufferedreader_reset_buf(self);
     while (1) {
         if (data) {
             if (PyList_Append(chunks, data) < 0) {
@@ -1357,6 +1460,14 @@ _bufferedreader_read_generic(buffered *self, Py_ssize_t n)
         memcpy(out, self->buffer + self->pos, current_size);
         remaining -= current_size;
         written += current_size;
+        self->pos += current_size;
+    }
+    /* Flush the write buffer if necessary */
+    if (self->writable) {
+        PyObject *r = buffered_flush_and_rewind_unlocked(self);
+        if (r == NULL)
+            goto error;
+        Py_DECREF(r);
     }
     _bufferedreader_reset_buf(self);
     while (remaining > 0) {
@@ -1386,7 +1497,10 @@ _bufferedreader_read_generic(buffered *self, Py_ssize_t n)
     self->pos = 0;
     self->raw_pos = 0;
     self->read_end = 0;
-    while (self->read_end < self->buffer_size) {
+    /* NOTE: when the read is satisfied, we avoid issuing any additional
+       reads, which could block indefinitely (e.g. on a socket).
+       See issue #9550. */
+    while (remaining > 0 && self->read_end < self->buffer_size) {
         Py_ssize_t r = _bufferedreader_fill_buffer(self);
         if (r == -1)
             goto error;
@@ -1469,11 +1583,12 @@ static PyMethodDef bufferedreader_methods[] = {
     {"seek", (PyCFunction)buffered_seek, METH_VARARGS},
     {"tell", (PyCFunction)buffered_tell, METH_NOARGS},
     {"truncate", (PyCFunction)buffered_truncate, METH_VARARGS},
+    {"__sizeof__", (PyCFunction)buffered_sizeof, METH_NOARGS},
     {NULL, NULL}
 };
 
 static PyMemberDef bufferedreader_members[] = {
-    {"raw", T_OBJECT, offsetof(buffered, raw), 0},
+    {"raw", T_OBJECT, offsetof(buffered, raw), READONLY},
     {NULL}
 };
 
@@ -1568,7 +1683,7 @@ bufferedwriter_init(buffered *self, PyObject *args, PyObject *kwds)
     self->ok = 0;
     self->detached = 0;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|nn:BufferedReader", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|nn:BufferedWriter", kwlist,
                                      &raw, &buffer_size, &max_buffer_size)) {
         return -1;
     }
@@ -1604,16 +1719,34 @@ _bufferedwriter_raw_write(buffered *self, char *start, Py_ssize_t len)
     Py_buffer buf;
     PyObject *memobj, *res;
     Py_ssize_t n;
+    int errnum;
     /* NOTE: the buffer needn't be released as its object is NULL. */
     if (PyBuffer_FillInfo(&buf, NULL, start, len, 1, PyBUF_CONTIG_RO) == -1)
         return -1;
     memobj = PyMemoryView_FromBuffer(&buf);
     if (memobj == NULL)
         return -1;
-    res = PyObject_CallMethodObjArgs(self->raw, _PyIO_str_write, memobj, NULL);
+    /* NOTE: PyErr_SetFromErrno() calls PyErr_CheckSignals() when EINTR
+       occurs so we needn't do it ourselves.
+       We then retry writing, ignoring the signal if no handler has
+       raised (see issue #10956).
+    */
+    do {
+        errno = 0;
+        res = PyObject_CallMethodObjArgs(self->raw, _PyIO_str_write, memobj, NULL);
+        errnum = errno;
+    } while (res == NULL && _PyIO_trap_eintr());
     Py_DECREF(memobj);
     if (res == NULL)
         return -1;
+    if (res == Py_None) {
+        /* Non-blocking stream would have blocked. Special return code!
+           Being paranoid we reset errno in case it is changed by code
+           triggered by a decref.  errno is used by _set_BlockingIOError(). */
+        Py_DECREF(res);
+        errno = errnum;
+        return -2;
+    }
     n = PyNumber_AsSsize_t(res, PyExc_ValueError);
     Py_DECREF(res);
     if (n < 0 || n > len) {
@@ -1630,7 +1763,7 @@ _bufferedwriter_raw_write(buffered *self, char *start, Py_ssize_t len)
 /* `restore_pos` is 1 if we need to restore the raw stream position at
    the end, 0 otherwise. */
 static PyObject *
-_bufferedwriter_flush_unlocked(buffered *self, int restore_pos)
+_bufferedwriter_flush_unlocked(buffered *self)
 {
     Py_ssize_t written = 0;
     Py_off_t n, rewind;
@@ -1652,31 +1785,23 @@ _bufferedwriter_flush_unlocked(buffered *self, int restore_pos)
             Py_SAFE_DOWNCAST(self->write_end - self->write_pos,
                              Py_off_t, Py_ssize_t));
         if (n == -1) {
-            Py_ssize_t *w = _buffered_check_blocking_error();
-            if (w == NULL)
-                goto error;
-            self->write_pos += *w;
-            self->raw_pos = self->write_pos;
-            written += *w;
-            *w = written;
-            /* Already re-raised */
+            goto error;
+        }
+        else if (n == -2) {
+            _set_BlockingIOError("write could not complete without blocking",
+                                 0);
             goto error;
         }
         self->write_pos += n;
         self->raw_pos = self->write_pos;
         written += Py_SAFE_DOWNCAST(n, Py_off_t, Py_ssize_t);
+        /* Partial writes can return successfully when interrupted by a
+           signal (see write(2)).  We must run signal handlers before
+           blocking another time, possibly indefinitely. */
+        if (PyErr_CheckSignals() < 0)
+            goto error;
     }
 
-    if (restore_pos) {
-        Py_off_t forward = rewind - written;
-        if (forward != 0) {
-            n = _buffered_raw_seek(self, forward, 1);
-            if (n < 0) {
-                goto error;
-            }
-            self->raw_pos += forward;
-        }
-    }
     _bufferedwriter_reset_buf(self);
 
 end:
@@ -1705,7 +1830,10 @@ bufferedwriter_write(buffered *self, PyObject *args)
         return NULL;
     }
 
-    ENTER_BUFFERED(self)
+    if (!ENTER_BUFFERED(self)) {
+        PyBuffer_Release(&buf);
+        return NULL;
+    }
 
     /* Fast path: the data to write can be fully buffered. */
     if (!VALID_READ_BUFFER(self) && !VALID_WRITE_BUFFER(self)) {
@@ -1715,7 +1843,7 @@ bufferedwriter_write(buffered *self, PyObject *args)
     avail = Py_SAFE_DOWNCAST(self->buffer_size - self->pos, Py_off_t, Py_ssize_t);
     if (buf.len <= avail) {
         memcpy(self->buffer + self->pos, buf.buf, buf.len);
-        if (!VALID_WRITE_BUFFER(self)) {
+        if (!VALID_WRITE_BUFFER(self) || self->write_pos > self->pos) {
             self->write_pos = self->pos;
         }
         ADJUST_POSITION(self, self->pos + buf.len);
@@ -1726,7 +1854,7 @@ bufferedwriter_write(buffered *self, PyObject *args)
     }
 
     /* First write the current buffer */
-    res = _bufferedwriter_flush_unlocked(self, 0);
+    res = _bufferedwriter_flush_unlocked(self);
     if (res == NULL) {
         Py_ssize_t *w = _buffered_check_blocking_error();
         if (w == NULL)
@@ -1749,14 +1877,19 @@ bufferedwriter_write(buffered *self, PyObject *args)
             PyErr_Clear();
             memcpy(self->buffer + self->write_end, buf.buf, buf.len);
             self->write_end += buf.len;
+            self->pos += buf.len;
             written = buf.len;
             goto end;
         }
         /* Buffer as much as possible. */
         memcpy(self->buffer + self->write_end, buf.buf, avail);
         self->write_end += avail;
-        /* Already re-raised */
-        *w = avail;
+        self->pos += avail;
+        /* XXX Modifying the existing exception e using the pointer w
+           will change e.characters_written but not e.args[2].
+           Therefore we just replace with a new error. */
+        _set_BlockingIOError("write could not complete without blocking",
+                             avail);
         goto error;
     }
     Py_CLEAR(res);
@@ -1781,11 +1914,9 @@ bufferedwriter_write(buffered *self, PyObject *args)
         Py_ssize_t n = _bufferedwriter_raw_write(
             self, (char *) buf.buf + written, buf.len - written);
         if (n == -1) {
-            Py_ssize_t *w = _buffered_check_blocking_error();
-            if (w == NULL)
-                goto error;
-            written += *w;
-            remaining -= *w;
+            goto error;
+        } else if (n == -2) {
+            /* Write failed because raw file is non-blocking */
             if (remaining > self->buffer_size) {
                 /* Can't buffer everything, still buffer as much as possible */
                 memcpy(self->buffer,
@@ -1793,8 +1924,9 @@ bufferedwriter_write(buffered *self, PyObject *args)
                 self->raw_pos = 0;
                 ADJUST_POSITION(self, self->buffer_size);
                 self->write_end = self->buffer_size;
-                *w = written + self->buffer_size;
-                /* Already re-raised */
+                written += self->buffer_size;
+                _set_BlockingIOError("write could not complete without "
+                                     "blocking", written);
                 goto error;
             }
             PyErr_Clear();
@@ -1802,6 +1934,11 @@ bufferedwriter_write(buffered *self, PyObject *args)
         }
         written += n;
         remaining -= n;
+        /* Partial writes can return successfully when interrupted by a
+           signal (see write(2)).  We must run signal handlers before
+           blocking another time, possibly indefinitely. */
+        if (PyErr_CheckSignals() < 0)
+            goto error;
     }
     if (self->readable)
         _bufferedreader_reset_buf(self);
@@ -1839,11 +1976,12 @@ static PyMethodDef bufferedwriter_methods[] = {
     {"flush", (PyCFunction)buffered_flush, METH_NOARGS},
     {"seek", (PyCFunction)buffered_seek, METH_VARARGS},
     {"tell", (PyCFunction)buffered_tell, METH_NOARGS},
+    {"__sizeof__", (PyCFunction)buffered_sizeof, METH_NOARGS},
     {NULL, NULL}
 };
 
 static PyMemberDef bufferedwriter_members[] = {
-    {"raw", T_OBJECT, offsetof(buffered, raw), 0},
+    {"raw", T_OBJECT, offsetof(buffered, raw), READONLY},
     {NULL}
 };
 
@@ -1982,6 +2120,8 @@ static void
 bufferedrwpair_dealloc(rwpair *self)
 {
     _PyObject_GC_UNTRACK(self);
+    if (self->weakreflist != NULL)
+        PyObject_ClearWeakRefs((PyObject *)self);
     Py_CLEAR(self->reader);
     Py_CLEAR(self->writer);
     Py_CLEAR(self->dict);
@@ -1991,9 +2131,14 @@ bufferedrwpair_dealloc(rwpair *self)
 static PyObject *
 _forward_call(buffered *self, const char *name, PyObject *args)
 {
-    PyObject *func = PyObject_GetAttrString((PyObject *)self, name);
-    PyObject *ret;
+    PyObject *func, *ret;
+    if (self == NULL) {
+        PyErr_SetString(PyExc_ValueError,
+                        "I/O operation on uninitialized object");
+        return NULL;
+    }
 
+    func = PyObject_GetAttrString((PyObject *)self, name);
     if (func == NULL) {
         PyErr_SetString(PyExc_AttributeError, name);
         return NULL;
@@ -2080,6 +2225,11 @@ bufferedrwpair_isatty(rwpair *self, PyObject *args)
 static PyObject *
 bufferedrwpair_closed_get(rwpair *self, void *context)
 {
+    if (self->writer == NULL) {
+        PyErr_SetString(PyExc_RuntimeError,
+                "the BufferedRWPair object is being garbage-collected");
+        return NULL;
+    }
     return PyObject_GetAttr((PyObject *) self->writer, _PyIO_str_closed);
 }
 
@@ -2173,7 +2323,7 @@ bufferedrandom_init(buffered *self, PyObject *args, PyObject *kwds)
     self->ok = 0;
     self->detached = 0;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|nn:BufferedReader", kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|nn:BufferedRandom", kwlist,
                                      &raw, &buffer_size, &max_buffer_size)) {
         return -1;
     }
@@ -2229,11 +2379,12 @@ static PyMethodDef bufferedrandom_methods[] = {
     {"readline", (PyCFunction)buffered_readline, METH_VARARGS},
     {"peek", (PyCFunction)buffered_peek, METH_VARARGS},
     {"write", (PyCFunction)bufferedwriter_write, METH_VARARGS},
+    {"__sizeof__", (PyCFunction)buffered_sizeof, METH_NOARGS},
     {NULL, NULL}
 };
 
 static PyMemberDef bufferedrandom_members[] = {
-    {"raw", T_OBJECT, offsetof(buffered, raw), 0},
+    {"raw", T_OBJECT, offsetof(buffered, raw), READONLY},
     {NULL}
 };
 

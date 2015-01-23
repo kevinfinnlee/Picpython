@@ -3,7 +3,8 @@ import array
 import unittest
 import struct
 import inspect
-from test.test_support import run_unittest, check_warnings, check_py3k_warnings
+from test import test_support as support
+from test.test_support import (check_warnings, check_py3k_warnings)
 
 import sys
 ISBIGENDIAN = sys.byteorder == "big"
@@ -62,8 +63,8 @@ class StructTest(unittest.TestCase):
 
         self.assertRaises(struct.error, struct.pack, 'iii', 3)
         self.assertRaises(struct.error, struct.pack, 'i', 3, 3, 3)
-        self.assertRaises(struct.error, struct.pack, 'i', 'foo')
-        self.assertRaises(struct.error, struct.pack, 'P', 'foo')
+        self.assertRaises((TypeError, struct.error), struct.pack, 'i', 'foo')
+        self.assertRaises((TypeError, struct.error), struct.pack, 'P', 'foo')
         self.assertRaises(struct.error, struct.unpack, 'd', 'flap')
         s = struct.pack('ii', 1, 2)
         self.assertRaises(struct.error, struct.unpack, 'iii', s)
@@ -243,7 +244,8 @@ class StructTest(unittest.TestCase):
                                                                  '\x01' + got)
                 else:
                     # x is out of range -- verify pack realizes that.
-                    self.assertRaises(struct.error, pack, format, x)
+                    self.assertRaises((OverflowError, ValueError, struct.error),
+                                      pack, format, x)
 
             def run(self):
                 from random import randrange
@@ -316,9 +318,8 @@ class StructTest(unittest.TestCase):
                                   randrange)
                 with check_warnings(("integer argument expected, "
                                      "got non-integer", DeprecationWarning)):
-                    self.assertRaises((TypeError, struct.error),
-                                      struct.pack, self.format,
-                                      3+42j)
+                    with self.assertRaises((TypeError, struct.error)):
+                        struct.pack(self.format, 3+42j)
 
                 # an attempt to convert a non-integer (with an
                 # implicit conversion via __int__) should succeed,
@@ -450,12 +451,15 @@ class StructTest(unittest.TestCase):
 
         # Go beyond boundaries.
         small_buf = array.array('c', ' '*10)
-        self.assertRaises(struct.error, s.pack_into, small_buf, 0, test_string)
-        self.assertRaises(struct.error, s.pack_into, small_buf, 2, test_string)
+        self.assertRaises((ValueError, struct.error), s.pack_into, small_buf, 0,
+                          test_string)
+        self.assertRaises((ValueError, struct.error), s.pack_into, small_buf, 2,
+                          test_string)
 
         # Test bogus offset (issue 3694)
         sb = small_buf
-        self.assertRaises(TypeError, struct.pack_into, b'1', sb, None)
+        self.assertRaises((TypeError, struct.error), struct.pack_into, b'', sb,
+                          None)
 
     def test_pack_into_fn(self):
         test_string = 'Reykjavik rocks, eow!'
@@ -475,8 +479,10 @@ class StructTest(unittest.TestCase):
 
         # Go beyond boundaries.
         small_buf = array.array('c', ' '*10)
-        self.assertRaises(struct.error, pack_into, small_buf, 0, test_string)
-        self.assertRaises(struct.error, pack_into, small_buf, 2, test_string)
+        self.assertRaises((ValueError, struct.error), pack_into, small_buf, 0,
+                          test_string)
+        self.assertRaises((ValueError, struct.error), pack_into, small_buf, 2,
+                          test_string)
 
     def test_unpack_with_buffer(self):
         with check_py3k_warnings(("buffer.. not supported in 3.x",
@@ -490,7 +496,18 @@ class StructTest(unittest.TestCase):
 
             self.test_unpack_from(cls=buffer)
 
+    def test_unpack_with_memoryview(self):
+        # Bug 10212: struct.unpack doesn't support new buffer protocol objects
+        data1 = memoryview('\x12\x34\x56\x78')
+        for data in [data1,]:
+            value, = struct.unpack('>I', data)
+            self.assertEqual(value, 0x12345678)
+        self.test_unpack_from(cls=memoryview)
+
     def test_bool(self):
+        class ExplodingBool(object):
+            def __nonzero__(self):
+                raise IOError
         for prefix in tuple("<>!=")+('',):
             false = (), [], [], '', 0
             true = [1], 'test', 5, -1, 0xffffffffL+1, 0xffffffff//2
@@ -519,8 +536,11 @@ class StructTest(unittest.TestCase):
                 self.assertFalse(prefix, msg='encoded bool is not one byte: %r'
                                              %packed)
 
-            for c in '\x01\x7f\xff\x0f\xf0':
-                self.assertTrue(struct.unpack('>?', c)[0])
+            self.assertRaises(IOError, struct.pack, prefix + '?',
+                              ExplodingBool())
+
+        for c in [b'\x01', b'\x7f', b'\xff', b'\x0f', b'\xf0']:
+            self.assertTrue(struct.unpack('>?', c)[0])
 
     @unittest.skipUnless(IS32BIT, "Specific to 32bit machines")
     def test_crasher(self):
@@ -533,8 +553,41 @@ class StructTest(unittest.TestCase):
         hugecount2 = '{}b{}H'.format(sys.maxsize//2, sys.maxsize//2)
         self.assertRaises(struct.error, struct.calcsize, hugecount2)
 
+    def check_sizeof(self, format_str, number_of_codes):
+        # The size of 'PyStructObject'
+        totalsize = support.calcobjsize('5P')
+        # The size taken up by the 'formatcode' dynamic array
+        totalsize += struct.calcsize('3P') * (number_of_codes + 1)
+        support.check_sizeof(self, struct.Struct(format_str), totalsize)
+
+    @support.cpython_only
+    def test__sizeof__(self):
+        for code in integer_codes:
+            self.check_sizeof(code, 1)
+        self.check_sizeof('BHILfdspP', 9)
+        self.check_sizeof('B' * 1234, 1234)
+        self.check_sizeof('fd', 2)
+        self.check_sizeof('xxxxxxxxxxxxxx', 0)
+        self.check_sizeof('100H', 100)
+        self.check_sizeof('187s', 1)
+        self.check_sizeof('20p', 1)
+        self.check_sizeof('0s', 1)
+        self.check_sizeof('0c', 0)
+
+    def test_unicode_format(self):
+        try:
+            unicode
+        except NameError:
+            self.skipTest('no unicode support')
+        # Issue #19099
+        s = struct.Struct(unichr(ord('I')))
+        self.assertEqual(s.format, 'I')
+        self.assertIs(type(s.format), str)
+        self.assertRaises(ValueError, struct.Struct, unichr(0x80))
+
+
 def test_main():
-    run_unittest(StructTest)
+    support.run_unittest(StructTest)
 
 if __name__ == '__main__':
     test_main()

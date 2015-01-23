@@ -1,6 +1,6 @@
 # -*-mode: python; fill-column: 75; tab-width: 8; coding: iso-latin-1-unix -*-
 #
-# $Id: Tix.py 81008 2010-05-08 20:59:42Z benjamin.peterson $
+# $Id$
 #
 # Tix.py -- Tix widget wrappers.
 #
@@ -122,13 +122,9 @@ class tixCommand:
         elif cnf:
             cnf = _cnfmerge(cnf)
         if cnf is None:
-            cnf = {}
-            for x in self.tk.split(self.tk.call('tix', 'configure')):
-                cnf[x[0][1:]] = (x[0][1:],) + x[1:]
-            return cnf
+            return self._getconfigure('tix', 'configure')
         if isinstance(cnf, StringType):
-            x = self.tk.split(self.tk.call('tix', 'configure', '-'+cnf))
-            return (x[0][1:],) + x[1:]
+            return self._getconfigure1('tix', 'configure', '-'+cnf)
         return self.tk.call(('tix', 'configure') + self._options(cnf))
 
     def tix_filedialog(self, dlgclass=None):
@@ -163,7 +159,7 @@ class tixCommand:
         extensions) exist, then the image type is chosen according to the
         depth of the X display: xbm images are chosen on monochrome
         displays and color images are chosen on color displays. By using
-        tix_ getimage, you can advoid hard coding the pathnames of the
+        tix_ getimage, you can avoid hard coding the pathnames of the
         image files in your application. When successful, this command
         returns the name of the newly created image, which can be used to
         configure the -image option of the Tk and Tix widgets.
@@ -171,7 +167,7 @@ class tixCommand:
         return self.tk.call('tix', 'getimage', name)
 
     def tix_option_get(self, name):
-        """Gets  the options  manitained  by  the  Tix
+        """Gets  the options  maintained  by  the  Tix
         scheme mechanism. Available options include:
 
             active_bg       active_fg      bg
@@ -380,7 +376,7 @@ class TixWidget(Tkinter.Widget):
         """Return the name of all subwidgets."""
         try:
             x = self.tk.call(self._w, 'subwidgets', '-all')
-            return self.tk.split(x)
+            return self.tk.splitlist(x)
         except TclError:
             return None
 
@@ -473,13 +469,6 @@ class TixSubWidget(TixWidget):
             self.tk.call('destroy', self._w)
 
 
-# Useful func. to split Tcl lists and return as a dict. From Tkinter.py
-def _lst2dict(lst):
-    dict = {}
-    for x in lst:
-        dict[x[0][1:]] = (x[0][1:],) + x[1:]
-    return dict
-
 # Useful class to create a display style - later shared by many items.
 # Contributed by Steffen Kremser
 class DisplayStyle:
@@ -515,10 +504,8 @@ class DisplayStyle:
         self.tk.call(self.stylename, 'configure', '-%s'%key, value)
 
     def config(self, cnf={}, **kw):
-        return _lst2dict(
-            self.tk.split(
-            self.tk.call(
-                  self.stylename, 'configure', *self._options(cnf,kw))))
+        return self._getconfigure(
+            self.stylename, 'configure', *self._options(cnf,kw))
 
     def __getitem__(self,key):
         return self.tk.call(self.stylename, 'cget', '-%s'%key)
@@ -576,7 +563,7 @@ class ButtonBox(TixWidget):
 
 class ComboBox(TixWidget):
     """ComboBox - an Entry field with a dropdown menu. The user can select a
-    choice by either typing in the entry subwdget or selecting from the
+    choice by either typing in the entry subwidget or selecting from the
     listbox subwidget.
 
     Subwidget       Class
@@ -869,7 +856,7 @@ class HList(TixWidget, XView, YView):
     """HList - Hierarchy display  widget can be used to display any data
     that have a hierarchical structure, for example, file system directory
     trees. The list entries are indented and connected by branch lines
-    according to their places in the hierachy.
+    according to their places in the hierarchy.
 
     Subwidgets - None"""
 
@@ -928,9 +915,7 @@ class HList(TixWidget, XView, YView):
 
     def header_configure(self, col, cnf={}, **kw):
         if cnf is None:
-            return _lst2dict(
-                self.tk.split(
-                self.tk.call(self._w, 'header', 'configure', col)))
+            return self._getconfigure(self._w, 'header', 'configure', col)
         self.tk.call(self._w, 'header', 'configure', col,
                      *self._options(cnf, kw))
 
@@ -955,9 +940,8 @@ class HList(TixWidget, XView, YView):
 
     def indicator_configure(self, entry, cnf={}, **kw):
         if cnf is None:
-            return _lst2dict(
-                self.tk.split(
-                self.tk.call(self._w, 'indicator', 'configure', entry)))
+            return self._getconfigure(
+                self._w, 'indicator', 'configure', entry)
         self.tk.call(
               self._w, 'indicator', 'configure', entry, *self._options(cnf, kw))
 
@@ -1017,9 +1001,7 @@ class HList(TixWidget, XView, YView):
 
     def item_configure(self, entry, col, cnf={}, **kw):
         if cnf is None:
-            return _lst2dict(
-                self.tk.split(
-                self.tk.call(self._w, 'item', 'configure', entry, col)))
+            return self._getconfigure(self._w, 'item', 'configure', entry, col)
         self.tk.call(self._w, 'item', 'configure', entry, col,
               *self._options(cnf, kw))
 
@@ -1038,9 +1020,7 @@ class HList(TixWidget, XView, YView):
 
     def entryconfigure(self, entry, cnf={}, **kw):
         if cnf is None:
-            return _lst2dict(
-                self.tk.split(
-                self.tk.call(self._w, 'entryconfigure', entry)))
+            return self._getconfigure(self._w, 'entryconfigure', entry)
         self.tk.call(self._w, 'entryconfigure', entry,
               *self._options(cnf, kw))
 
@@ -1255,9 +1235,7 @@ class PanedWindow(TixWidget):
 
     def paneconfigure(self, entry, cnf={}, **kw):
         if cnf is None:
-            return _lst2dict(
-                self.tk.split(
-                self.tk.call(self._w, 'paneconfigure', entry)))
+            return self._getconfigure(self._w, 'paneconfigure', entry)
         self.tk.call(self._w, 'paneconfigure', entry, *self._options(cnf, kw))
 
     def panes(self):
@@ -1520,7 +1498,7 @@ class TList(TixWidget, XView, YView):
         self.tk.call(self._w, 'selection', 'set', first, last)
 
 class Tree(TixWidget):
-    """Tree - The tixTree widget can be used to display hierachical
+    """Tree - The tixTree widget can be used to display hierarchical
     data in a tree form. The user can adjust
     the view of the tree by opening or closing parts of the tree."""
 
@@ -1874,13 +1852,13 @@ class Grid(TixWidget, XView, YView):
         return self.tk.call(self, 'info', 'bbox', x, y)
 
     def move_column(self, from_, to, offset):
-        """Moves the the range of columns from position FROM through TO by
+        """Moves the range of columns from position FROM through TO by
         the distance indicated by OFFSET. For example, move_column(2, 4, 1)
         moves the columns 2,3,4 to columns 3,4,5."""
         self.tk.call(self, 'move', 'column', from_, to, offset)
 
     def move_row(self, from_, to, offset):
-        """Moves the the range of rows from position FROM through TO by
+        """Moves the range of rows from position FROM through TO by
         the distance indicated by OFFSET.
         For example, move_row(2, 4, 1) moves the rows 2,3,4 to rows 3,4,5."""
         self.tk.call(self, 'move', 'row', from_, to, offset)
@@ -1902,49 +1880,51 @@ class Grid(TixWidget, XView, YView):
         self.tk.call(self, 'set', x, y, *args)
 
     def size_column(self, index, **kw):
-        """Queries  or  sets the size of the column given by
-        INDEX.  INDEX may be any  non-negative
-        integer  that  gives  the  position  of a given column.
+        """Queries or sets the size of the column given by
+        INDEX.  INDEX may be any non-negative
+        integer that gives the position of a given column.
         INDEX can also be the string "default"; in this case, this command
         queries or sets the default size of all columns.
-        When  no  option-value  pair is given, this command returns a tuple
-        containing the current size setting of the given  column.  When
-        option-value  pairs  are  given,  the corresponding options of the
+        When no option-value pair is given, this command returns a tuple
+        containing the current size setting of the given column.  When
+        option-value pairs are given, the corresponding options of the
         size setting of the given column are changed. Options may be one
-        of  the  follwing:
+        of the follwing:
               pad0 pixels
                      Specifies the paddings to the left of a column.
               pad1 pixels
-                     Specifies the paddings to the right of a  column.
+                     Specifies the paddings to the right of a column.
               size val
-                     Specifies  the  width of a column .
-                     Val may be: "auto" -- the width of the column is set the
-                     the widest cell in the column; a valid Tk screen distance
-                     unit; or a real number following by the word chars
+                     Specifies the width of a column.  Val may be:
+                     "auto" -- the width of the column is set to the
+                     width of the widest cell in the column;
+                     a valid Tk screen distance unit;
+                     or a real number following by the word chars
                      (e.g. 3.4chars) that sets the width of the column to the
                      given number of characters."""
         return self.tk.split(self.tk.call(self._w, 'size', 'column', index,
                              *self._options({}, kw)))
 
     def size_row(self, index, **kw):
-        """Queries  or  sets the size of the row given by
-        INDEX. INDEX may be any  non-negative
-        integer  that  gives  the  position  of a given row .
+        """Queries or sets the size of the row given by
+        INDEX. INDEX may be any non-negative
+        integer that gives the position of a given row .
         INDEX can also be the string "default"; in this case, this command
         queries or sets the default size of all rows.
-        When  no option-value pair is given, this command returns a list con-
-        taining the current size setting of the given  row . When option-value
+        When no option-value pair is given, this command returns a list con-
+        taining the current size setting of the given row . When option-value
         pairs are given, the corresponding options of the size setting of the
         given row are changed. Options may be one of the follwing:
               pad0 pixels
                      Specifies the paddings to the top of a row.
               pad1 pixels
-                     Specifies the paddings to the the bottom of a row.
+                     Specifies the paddings to the bottom of a row.
               size val
-                     Specifies  the height of a row.
-                     Val may be: "auto" -- the height of the row  is  set  the
-                     the highest cell in the row; a valid Tk screen distance
-                     unit; or a real number following by the word chars
+                     Specifies the height of a row.  Val may be:
+                     "auto" -- the height of the row is set to the
+                     height of the highest cell in the row;
+                     a valid Tk screen distance unit;
+                     or a real number following by the word chars
                      (e.g. 3.4chars) that sets the height of the row to the
                      given number of characters."""
         return self.tk.split(self.tk.call(

@@ -1,4 +1,4 @@
-"""HTTP cookie handling for web clients.
+r"""HTTP cookie handling for web clients.
 
 This module has (now fairly distant) origins in Gisle Aas' Perl module
 HTTP::Cookies, from the libwww-perl library.
@@ -607,19 +607,14 @@ def eff_request_host(request):
     return req_host, erhn
 
 def request_path(request):
-    """request-URI, as defined by RFC 2965."""
+    """Path component of request-URI, as defined by RFC 2965."""
     url = request.get_full_url()
-    #scheme, netloc, path, parameters, query, frag = urlparse.urlparse(url)
-    #req_path = escape_path("".join(urlparse.urlparse(url)[2:]))
-    path, parameters, query, frag = urlparse.urlparse(url)[2:]
-    if parameters:
-        path = "%s;%s" % (path, parameters)
-    path = escape_path(path)
-    req_path = urlparse.urlunparse(("", "", path, "", query, frag))
-    if not req_path.startswith("/"):
+    parts = urlparse.urlsplit(url)
+    path = escape_path(parts.path)
+    if not path.startswith("/"):
         # fix bad RFC 2396 absoluteURI
-        req_path = "/"+req_path
-    return req_path
+        path = "/" + path
+    return path
 
 def request_port(request):
     host = request.get_host()
@@ -1019,7 +1014,7 @@ class DefaultCookiePolicy(CookiePolicy):
                     (not erhn.startswith(".") and
                      not ("."+erhn).endswith(domain))):
                     _debug("   effective request-host %s (even with added "
-                           "initial dot) does not end end with %s",
+                           "initial dot) does not end with %s",
                            erhn, domain)
                     return False
             if (cookie.version > 0 or
@@ -1724,12 +1719,12 @@ class CookieJar:
     def __repr__(self):
         r = []
         for cookie in self: r.append(repr(cookie))
-        return "<%s[%s]>" % (self.__class__, ", ".join(r))
+        return "<%s[%s]>" % (self.__class__.__name__, ", ".join(r))
 
     def __str__(self):
         r = []
         for cookie in self: r.append(str(cookie))
-        return "<%s[%s]>" % (self.__class__, ", ".join(r))
+        return "<%s[%s]>" % (self.__class__.__name__, ", ".join(r))
 
 
 # derives from IOError for backwards-compatibility with Python 2.4.0

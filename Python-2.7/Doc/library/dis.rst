@@ -1,16 +1,24 @@
-
 :mod:`dis` --- Disassembler for Python bytecode
 ===============================================
 
 .. module:: dis
    :synopsis: Disassembler for Python bytecode.
 
+**Source code:** :source:`Lib/dis.py`
 
-The :mod:`dis` module supports the analysis of Python :term:`bytecode` by disassembling
-it.  Since there is no Python assembler, this module defines the Python assembly
-language.  The Python bytecode which this module takes as an input is defined
-in the file  :file:`Include/opcode.h` and used by the compiler and the
-interpreter.
+--------------
+
+The :mod:`dis` module supports the analysis of CPython :term:`bytecode` by
+disassembling it. The CPython bytecode which this module takes as an
+input is defined in the file :file:`Include/opcode.h` and used by the compiler
+and the interpreter.
+
+.. impl-detail::
+
+   Bytecode is an implementation detail of the CPython interpreter!  No
+   guarantees are made that bytecode will not be added, removed, or changed
+   between versions of Python.  Use of this module should not be considered to
+   work across Python VMs or Python releases.
 
 Example: Given the function :func:`myfunc`::
 
@@ -88,7 +96,7 @@ The :mod:`dis` module defines the following functions and constants:
 
 .. data:: opmap
 
-   Dictionary mapping bytecodes to operation names.
+   Dictionary mapping operation names to bytecodes.
 
 
 .. data:: cmp_op
@@ -438,7 +446,7 @@ Miscellaneous opcodes.
 
    Implements the expression statement for the interactive mode.  TOS is removed
    from the stack and printed.  In non-interactive mode, an expression statement is
-   terminated with ``POP_STACK``.
+   terminated with :opcode:`POP_TOP`.
 
 
 .. opcode:: PRINT_ITEM ()
@@ -473,7 +481,7 @@ Miscellaneous opcodes.
 .. opcode:: CONTINUE_LOOP (target)
 
    Continues a loop due to a :keyword:`continue` statement.  *target* is the
-   address to jump to (which should be a ``FOR_ITER`` instruction).
+   address to jump to (which should be a :opcode:`FOR_ITER` instruction).
 
 
 .. opcode:: LIST_APPEND (i)
@@ -830,21 +838,21 @@ the more significant byte last.
 
 .. opcode:: CALL_FUNCTION_VAR (argc)
 
-   Calls a function. *argc* is interpreted as in ``CALL_FUNCTION``. The top element
+   Calls a function. *argc* is interpreted as in :opcode:`CALL_FUNCTION`. The top element
    on the stack contains the variable argument list, followed by keyword and
    positional arguments.
 
 
 .. opcode:: CALL_FUNCTION_KW (argc)
 
-   Calls a function. *argc* is interpreted as in ``CALL_FUNCTION``. The top element
+   Calls a function. *argc* is interpreted as in :opcode:`CALL_FUNCTION`. The top element
    on the stack contains the keyword arguments dictionary,  followed by explicit
    keyword and positional arguments.
 
 
 .. opcode:: CALL_FUNCTION_VAR_KW (argc)
 
-   Calls a function. *argc* is interpreted as in ``CALL_FUNCTION``.  The top
+   Calls a function. *argc* is interpreted as in :opcode:`CALL_FUNCTION`.  The top
    element on the stack contains the keyword arguments dictionary, followed by the
    variable-arguments tuple, followed by explicit keyword and positional arguments.
 

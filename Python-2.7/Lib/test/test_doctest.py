@@ -258,6 +258,21 @@ unless it's `None`:
     >>> e = doctest.Example('raise X()', '', exc_msg)
     >>> e.exc_msg
     '\n'
+
+Compare `Example`:
+    >>> example = doctest.Example('print 1', '1\n')
+    >>> same_example = doctest.Example('print 1', '1\n')
+    >>> other_example = doctest.Example('print 42', '42\n')
+    >>> example == same_example
+    True
+    >>> example != same_example
+    False
+    >>> hash(example) == hash(same_example)
+    True
+    >>> example == other_example
+    False
+    >>> example != other_example
+    True
 """
 
 def test_DocTest(): r"""
@@ -346,6 +361,50 @@ will raise a ValueError:
     >>> parser.get_doctest(docstring, globs, 'some_test', 'filename', 0)
     Traceback (most recent call last):
     ValueError: line 2 of the docstring for some_test lacks blank after ...: '...print 1'
+
+Compare `DocTest`:
+
+    >>> docstring = '''
+    ...     >>> print 12
+    ...     12
+    ... '''
+    >>> test = parser.get_doctest(docstring, globs, 'some_test',
+    ...                           'some_test', 20)
+    >>> same_test = parser.get_doctest(docstring, globs, 'some_test',
+    ...                                'some_test', 20)
+    >>> test == same_test
+    True
+    >>> test != same_test
+    False
+    >>> hash(test) == hash(same_test)
+    True
+    >>> docstring = '''
+    ...     >>> print 42
+    ...     42
+    ... '''
+    >>> other_test = parser.get_doctest(docstring, globs, 'other_test',
+    ...                                 'other_file', 10)
+    >>> test == other_test
+    False
+    >>> test != other_test
+    True
+
+Compare `DocTestCase`:
+
+    >>> DocTestCase = doctest.DocTestCase
+    >>> test_case = DocTestCase(test)
+    >>> same_test_case = DocTestCase(same_test)
+    >>> other_test_case = DocTestCase(other_test)
+    >>> test_case == same_test_case
+    True
+    >>> test_case != same_test_case
+    False
+    >>> hash(test_case) == hash(same_test_case)
+    True
+    >>> test == other_test_case
+    False
+    >>> test != other_test_case
+    True
 
 """
 
@@ -960,6 +1019,33 @@ But IGNORE_EXCEPTION_DETAIL does not allow a mismatch in the exception type:
         ValueError: message
     TestResults(failed=1, attempted=1)
 
+If the exception does not have a message, you can still use
+IGNORE_EXCEPTION_DETAIL to normalize the modules between Python 2 and 3:
+
+    >>> def f(x):
+    ...     r'''
+    ...     >>> from Queue import Empty
+    ...     >>> raise Empty() #doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     Traceback (most recent call last):
+    ...     foo.bar.Empty
+    ...     '''
+    >>> test = doctest.DocTestFinder().find(f)[0]
+    >>> doctest.DocTestRunner(verbose=False).run(test)
+    TestResults(failed=0, attempted=2)
+
+Note that a trailing colon doesn't matter either:
+
+    >>> def f(x):
+    ...     r'''
+    ...     >>> from Queue import Empty
+    ...     >>> raise Empty() #doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     Traceback (most recent call last):
+    ...     foo.bar.Empty:
+    ...     '''
+    >>> test = doctest.DocTestFinder().find(f)[0]
+    >>> doctest.DocTestRunner(verbose=False).run(test)
+    TestResults(failed=0, attempted=2)
+
 If an exception is raised but not expected, then it is reported as an
 unexpected exception:
 
@@ -980,6 +1066,35 @@ unexpected exception:
         ...
         ZeroDivisionError: integer division or modulo by zero
     TestResults(failed=1, attempted=1)
+"""
+    def displayhook(): r"""
+Test that changing sys.displayhook doesn't matter for doctest.
+
+    >>> import sys
+    >>> orig_displayhook = sys.displayhook
+    >>> def my_displayhook(x):
+    ...     print('hi!')
+    >>> sys.displayhook = my_displayhook
+    >>> def f():
+    ...     '''
+    ...     >>> 3
+    ...     3
+    ...     '''
+    >>> test = doctest.DocTestFinder().find(f)[0]
+    >>> r = doctest.DocTestRunner(verbose=False).run(test)
+    >>> post_displayhook = sys.displayhook
+
+    We need to restore sys.displayhook now, so that we'll be able to test
+    results.
+
+    >>> sys.displayhook = orig_displayhook
+
+    Ok, now we can check that everything is ok.
+
+    >>> r
+    TestResults(failed=0, attempted=1)
+    >>> post_displayhook is my_displayhook
+    True
 """
     def optionflags(): r"""
 Tests of `DocTestRunner`'s option flag handling.
@@ -1263,7 +1378,7 @@ marking, as well as interline differences.
         ?     +              ++    ^
     TestResults(failed=1, attempted=1)
 
-The REPORT_ONLY_FIRST_FAILURE supresses result output after the first
+The REPORT_ONLY_FIRST_FAILURE suppresses result output after the first
 failing example:
 
     >>> def f(x):
@@ -1293,7 +1408,7 @@ failing example:
         2
     TestResults(failed=3, attempted=5)
 
-However, output from `report_start` is not supressed:
+However, output from `report_start` is not suppressed:
 
     >>> doctest.DocTestRunner(verbose=True, optionflags=flags).run(test)
     ... # doctest: +ELLIPSIS
@@ -1581,7 +1696,33 @@ source:
     >>> test = doctest.DocTestParser().get_doctest(s, {}, 's', 's.py', 0)
     Traceback (most recent call last):
     ValueError: line 0 of the doctest for s has an option directive on a line with no example: '# doctest: +ELLIPSIS'
-"""
+
+    """
+
+    def test_unicode_output(self): r"""
+
+Check that unicode output works:
+
+    >>> u'\xe9'
+    u'\xe9'
+
+If we return unicode, SpoofOut's buf variable becomes automagically
+converted to unicode. This means all subsequent output becomes converted
+to unicode, and if the output contains non-ascii characters that failed.
+It used to be that this state change carried on between tests, meaning
+tests would fail if unicode has been output previously in the testrun.
+This test tests that this is no longer so:
+
+    >>> print u'abc'
+    abc
+
+And then return a string with non-ascii characters:
+
+    >>> print u'\xe9'.encode('utf-8')
+    é
+
+    """
+
 
 def test_testsource(): r"""
 Unit tests for `testsource()`.
@@ -1666,10 +1807,13 @@ def test_pdb_set_trace():
 
       >>> doc = '''
       ... >>> x = 42
+      ... >>> raise Exception('clé')
+      ... Traceback (most recent call last):
+      ... Exception: clé
       ... >>> import pdb; pdb.set_trace()
       ... '''
       >>> parser = doctest.DocTestParser()
-      >>> test = parser.get_doctest(doc, {}, "foo", "foo.py", 0)
+      >>> test = parser.get_doctest(doc, {}, "foo-bär@baz", "foo-bär@baz.py", 0)
       >>> runner = doctest.DocTestRunner(verbose=False)
 
     To demonstrate this, we'll create a fake standard input that
@@ -1685,12 +1829,12 @@ def test_pdb_set_trace():
       >>> try: runner.run(test)
       ... finally: sys.stdin = real_stdin
       --Return--
-      > <doctest foo[1]>(1)<module>()->None
+      > <doctest foo-bär@baz[2]>(1)<module>()->None
       -> import pdb; pdb.set_trace()
       (Pdb) print x
       42
       (Pdb) continue
-      TestResults(failed=0, attempted=2)
+      TestResults(failed=0, attempted=3)
 
       You can also put pdb.set_trace in a function called from a test:
 
@@ -1702,7 +1846,7 @@ def test_pdb_set_trace():
       ... >>> x=1
       ... >>> calls_set_trace()
       ... '''
-      >>> test = parser.get_doctest(doc, globals(), "foo", "foo.py", 0)
+      >>> test = parser.get_doctest(doc, globals(), "foo-bär@baz", "foo-bär@baz.py", 0)
       >>> real_stdin = sys.stdin
       >>> sys.stdin = _FakeInput([
       ...    'print y',  # print data defined in the function
@@ -1721,7 +1865,7 @@ def test_pdb_set_trace():
       (Pdb) print y
       2
       (Pdb) up
-      > <doctest foo[1]>(1)<module>()
+      > <doctest foo-bär@baz[1]>(1)<module>()
       -> calls_set_trace()
       (Pdb) print x
       1
@@ -1739,7 +1883,7 @@ def test_pdb_set_trace():
       ... ...     import pdb; pdb.set_trace()
       ... >>> f(3)
       ... '''
-      >>> test = parser.get_doctest(doc, globals(), "foo", "foo.py", 0)
+      >>> test = parser.get_doctest(doc, globals(), "foo-bär@baz", "foo-bär@baz.py", 0)
       >>> real_stdin = sys.stdin
       >>> sys.stdin = _FakeInput([
       ...    'list',     # list source from example 2
@@ -1753,7 +1897,7 @@ def test_pdb_set_trace():
       ... finally: sys.stdin = real_stdin
       ... # doctest: +NORMALIZE_WHITESPACE
       --Return--
-      > <doctest foo[1]>(3)g()->None
+      > <doctest foo-bär@baz[1]>(3)g()->None
       -> import pdb; pdb.set_trace()
       (Pdb) list
         1     def g(x):
@@ -1762,7 +1906,7 @@ def test_pdb_set_trace():
       [EOF]
       (Pdb) next
       --Return--
-      > <doctest foo[0]>(2)f()->None
+      > <doctest foo-bär@baz[0]>(2)f()->None
       -> g(x*2)
       (Pdb) list
         1     def f(x):
@@ -1770,14 +1914,14 @@ def test_pdb_set_trace():
       [EOF]
       (Pdb) next
       --Return--
-      > <doctest foo[2]>(1)<module>()->None
+      > <doctest foo-bär@baz[2]>(1)<module>()->None
       -> f(3)
       (Pdb) list
         1  -> f(3)
       [EOF]
       (Pdb) continue
       **********************************************************************
-      File "foo.py", line 7, in foo
+      File "foo-bär@baz.py", line 7, in foo-bär@baz
       Failed example:
           f(3)
       Expected nothing
@@ -1811,7 +1955,7 @@ def test_pdb_set_trace_nested():
     ... '''
     >>> parser = doctest.DocTestParser()
     >>> runner = doctest.DocTestRunner(verbose=False)
-    >>> test = parser.get_doctest(doc, globals(), "foo", "foo.py", 0)
+    >>> test = parser.get_doctest(doc, globals(), "foo-bär@baz", "foo-bär@baz.py", 0)
     >>> real_stdin = sys.stdin
     >>> sys.stdin = _FakeInput([
     ...    'print y',  # print data defined in the function
@@ -1863,7 +2007,7 @@ def test_pdb_set_trace_nested():
     (Pdb) print y
     1
     (Pdb) up
-    > <doctest foo[1]>(1)<module>()
+    > <doctest foo-bär@baz[1]>(1)<module>()
     -> calls_set_trace()
     (Pdb) print foo
     *** NameError: name 'foo' is not defined
@@ -1888,6 +2032,31 @@ def test_DocTestSuite():
          >>> suite = doctest.DocTestSuite('test.sample_doctest')
          >>> suite.run(unittest.TestResult())
          <unittest.result.TestResult run=9 errors=0 failures=4>
+
+       The module need not contain any doctest examples:
+
+         >>> suite = doctest.DocTestSuite('test.sample_doctest_no_doctests')
+         >>> suite.run(unittest.TestResult())
+         <unittest.result.TestResult run=0 errors=0 failures=0>
+
+       However, if DocTestSuite finds no docstrings, it raises an error:
+
+         >>> try:
+         ...     doctest.DocTestSuite('test.sample_doctest_no_docstrings')
+         ... except ValueError as e:
+         ...     error = e
+
+         >>> print(error.args[1])
+         has no docstrings
+
+       You can prevent this error by passing a DocTestFinder instance with
+       the `exclude_empty` keyword argument set to False:
+
+         >>> finder = doctest.DocTestFinder(exclude_empty=False)
+         >>> suite = doctest.DocTestSuite('test.sample_doctest_no_docstrings',
+         ...                              test_finder=finder)
+         >>> suite.run(unittest.TestResult())
+         <unittest.result.TestResult run=0 errors=0 failures=0>
 
        We can use the current module:
 
@@ -2276,7 +2445,7 @@ optional `module_relative` parameter:
     TestResults(failed=0, attempted=2)
     >>> doctest.master = None  # Reset master.
 
-Verbosity can be increased with the optional `verbose` paremter:
+Verbosity can be increased with the optional `verbose` parameter:
 
     >>> doctest.testfile('test_doctest.txt', globs=globs, verbose=True)
     Trying:
@@ -2313,7 +2482,7 @@ parameter:
     TestResults(failed=1, attempted=2)
     >>> doctest.master = None  # Reset master.
 
-The summary report may be supressed with the optional `report`
+The summary report may be suppressed with the optional `report`
 parameter:
 
     >>> doctest.testfile('test_doctest.txt', report=False)
@@ -2398,6 +2567,32 @@ bothering with the current sys.stdout encoding.
     >>> doctest._encoding = saved_encoding
     >>> doctest.master = None  # Reset master.
     >>> sys.argv = save_argv
+"""
+
+def test_lineendings(): r"""
+*nix systems use \n line endings, while Windows systems use \r\n.  Python
+handles this using universal newline mode for reading files.  Let's make
+sure doctest does so (issue 8473) by creating temporary test files using each
+of the two line disciplines.  One of the two will be the "wrong" one for the
+platform the test is run on.
+
+Windows line endings first:
+
+    >>> import tempfile, os
+    >>> fn = tempfile.mktemp()
+    >>> open(fn, 'w').write('Test:\r\n\r\n  >>> x = 1 + 1\r\n\r\nDone.\r\n')
+    >>> doctest.testfile(fn, False)
+    TestResults(failed=0, attempted=1)
+    >>> os.remove(fn)
+
+And now *nix line endings:
+
+    >>> fn = tempfile.mktemp()
+    >>> open(fn, 'w').write('Test:\n\n  >>> x = 1 + 1\n\nDone.\n')
+    >>> doctest.testfile(fn, False)
+    TestResults(failed=0, attempted=1)
+    >>> os.remove(fn)
+
 """
 
 # old_test1, ... used to live in doctest.py, but cluttered it.  Note
@@ -2531,7 +2726,9 @@ def test_main():
     from test import test_doctest
 
     # Ignore all warnings about the use of class Tester in this module.
-    deprecations = [("class Tester is deprecated", DeprecationWarning)]
+    deprecations = []
+    if __debug__:
+        deprecations.append(("class Tester is deprecated", DeprecationWarning))
     if sys.py3kwarning:
         deprecations += [("backquote not supported", SyntaxWarning),
                          ("execfile.. not supported", DeprecationWarning)]

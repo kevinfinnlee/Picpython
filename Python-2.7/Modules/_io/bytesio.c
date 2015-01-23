@@ -106,7 +106,7 @@ resize_buffer(bytesio *self, size_t size)
 }
 
 /* Internal routine for writing a string of bytes to the buffer of a BytesIO
-   object. Returns the number of bytes wrote, or -1 on error. */
+   object. Returns the number of bytes written, or -1 on error. */
 static Py_ssize_t
 write_bytes(bytesio *self, const char *bytes, Py_ssize_t len)
 {
@@ -156,10 +156,20 @@ bytesio_get_closed(bytesio *self)
     }
 }
 
+PyDoc_STRVAR(readable_doc,
+"readable() -> bool. Returns True if the IO object can be read.");
+
+PyDoc_STRVAR(writable_doc,
+"writable() -> bool. Returns True if the IO object can be written.");
+
+PyDoc_STRVAR(seekable_doc,
+"seekable() -> bool. Returns True if the IO object can be seeked.");
+
 /* Generic getter for the writable, readable and seekable properties */
 static PyObject *
-return_true(bytesio *self)
+return_not_closed(bytesio *self)
 {
+    CHECK_CLOSED(self);
     Py_RETURN_TRUE;
 }
 
@@ -391,7 +401,7 @@ static PyObject *
 bytesio_readinto(bytesio *self, PyObject *args)
 {
     Py_buffer buf;
-    Py_ssize_t len;
+    Py_ssize_t len, n;
 
     CHECK_CLOSED(self);
 
@@ -399,8 +409,13 @@ bytesio_readinto(bytesio *self, PyObject *args)
         return NULL;
 
     len = buf.len;
-    if (self->pos + len > self->string_size)
-        len = self->string_size - self->pos;
+    /* adjust invalid sizes */
+    n = self->string_size - self->pos;
+    if (len > n) {
+        len = n;
+        if (len < 0)
+            len = 0;
+    }
 
     memcpy(buf.buf, self->buf + self->pos, len);
     assert(self->pos + len < PY_SSIZE_T_MAX);
@@ -789,6 +804,17 @@ bytesio_init(bytesio *self, PyObject *args, PyObject *kwds)
     return 0;
 }
 
+static PyObject *
+bytesio_sizeof(bytesio *self, void *unused)
+{
+    Py_ssize_t res;
+
+    res = sizeof(bytesio);
+    if (self->buf)
+        res += self->buf_size;
+    return PyLong_FromSsize_t(res);
+}
+
 static int
 bytesio_traverse(bytesio *self, visitproc visit, void *arg)
 {
@@ -811,9 +837,9 @@ static PyGetSetDef bytesio_getsetlist[] = {
 };
 
 static struct PyMethodDef bytesio_methods[] = {
-    {"readable",   (PyCFunction)return_true,        METH_NOARGS, NULL},
-    {"seekable",   (PyCFunction)return_true,        METH_NOARGS, NULL},
-    {"writable",   (PyCFunction)return_true,        METH_NOARGS, NULL},
+    {"readable",   (PyCFunction)return_not_closed,  METH_NOARGS, readable_doc},
+    {"seekable",   (PyCFunction)return_not_closed,  METH_NOARGS, seekable_doc},
+    {"writable",   (PyCFunction)return_not_closed,  METH_NOARGS, writable_doc},
     {"close",      (PyCFunction)bytesio_close,      METH_NOARGS, close_doc},
     {"flush",      (PyCFunction)bytesio_flush,      METH_NOARGS, flush_doc},
     {"isatty",     (PyCFunction)bytesio_isatty,     METH_NOARGS, isatty_doc},
@@ -825,11 +851,12 @@ static struct PyMethodDef bytesio_methods[] = {
     {"readline",   (PyCFunction)bytesio_readline,   METH_VARARGS, readline_doc},
     {"readlines",  (PyCFunction)bytesio_readlines,  METH_VARARGS, readlines_doc},
     {"read",       (PyCFunction)bytesio_read,       METH_VARARGS, read_doc},
-    {"getvalue",   (PyCFunction)bytesio_getvalue,   METH_VARARGS, getval_doc},
+    {"getvalue",   (PyCFunction)bytesio_getvalue,   METH_NOARGS,  getval_doc},
     {"seek",       (PyCFunction)bytesio_seek,       METH_VARARGS, seek_doc},
     {"truncate",   (PyCFunction)bytesio_truncate,   METH_VARARGS, truncate_doc},
     {"__getstate__",  (PyCFunction)bytesio_getstate,  METH_NOARGS, NULL},
     {"__setstate__",  (PyCFunction)bytesio_setstate,  METH_O, NULL},
+    {"__sizeof__", (PyCFunction)bytesio_sizeof,     METH_NOARGS, NULL},
     {NULL, NULL}        /* sentinel */
 };
 

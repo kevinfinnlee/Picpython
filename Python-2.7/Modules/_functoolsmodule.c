@@ -278,7 +278,7 @@ static PyGetSetDef partial_getsetlist[] = {
    __reduce__ by itself doesn't support getting kwargs in the unpickle
    operation so we define a __setstate__ that replaces all the information
    about the partial.  If we only replaced part of it someone would use
-   it as a hook to do stange things.
+   it as a hook to do strange things.
  */
 
 PyObject *
@@ -290,10 +290,10 @@ partial_reduce(partialobject *pto, PyObject *unused)
 }
 
 PyObject *
-partial_setstate(partialobject *pto, PyObject *args)
+partial_setstate(partialobject *pto, PyObject *state)
 {
     PyObject *fn, *fnargs, *kw, *dict;
-    if (!PyArg_ParseTuple(args, "(OOOO):__setstate__",
+    if (!PyArg_ParseTuple(state, "OOOO",
                           &fn, &fnargs, &kw, &dict))
         return NULL;
     Py_XDECREF(pto->fn);
@@ -317,7 +317,7 @@ partial_setstate(partialobject *pto, PyObject *args)
 
 static PyMethodDef partial_methods[] = {
     {"__reduce__", (PyCFunction)partial_reduce, METH_NOARGS},
-    {"__setstate__", (PyCFunction)partial_setstate, METH_VARARGS},
+    {"__setstate__", (PyCFunction)partial_setstate, METH_O},
     {NULL,              NULL}           /* sentinel */
 };
 

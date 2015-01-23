@@ -84,15 +84,28 @@ class PlatformTest(unittest.TestCase):
                 ("CPython", "2.6.1", "tags/r261", "67515",
                  ('r261:67515', 'Dec  6 2008 15:26:00'),
                  'GCC 4.0.1 (Apple Computer, Inc. build 5370)'),
+
             ("IronPython 2.0 (2.0.0.0) on .NET 2.0.50727.3053", None, "cli")
             :
                 ("IronPython", "2.0.0", "", "", ("", ""),
                  ".NET 2.0.50727.3053"),
+
+            ("2.6.1 (IronPython 2.6.1 (2.6.10920.0) on .NET 2.0.50727.1433)", None, "cli")
+            :
+                ("IronPython", "2.6.1", "", "", ("", ""),
+                 ".NET 2.0.50727.1433"),
+
+            ("2.7.4 (IronPython 2.7.4 (2.7.0.40) on Mono 4.0.30319.1 (32-bit))", None, "cli")
+            :
+                ("IronPython", "2.7.4", "", "", ("", ""),
+                 "Mono 4.0.30319.1 (32-bit)"),
+
             ("2.5 (trunk:6107, Mar 26 2009, 13:02:18) \n[Java HotSpot(TM) Client VM (\"Apple Computer, Inc.\")]",
             ('Jython', 'trunk', '6107'), "java1.5.0_16")
             :
                 ("Jython", "2.5.0", "trunk", "6107",
                  ('trunk:6107', 'Mar 26 2009'), "java1.5.0_16"),
+
             ("2.5.2 (63378, Mar 26 2009, 18:03:29)\n[PyPy 1.0.0]",
              ('PyPy', 'trunk', '63378'), self.save_platform)
             :
@@ -183,17 +196,36 @@ class PlatformTest(unittest.TestCase):
             # On Snow Leopard, sw_vers reports 10.6.0 as 10.6
             if len_diff > 0:
                 expect_list.extend(['0'] * len_diff)
-            self.assertEquals(result_list, expect_list)
+            self.assertEqual(result_list, expect_list)
 
             # res[1] claims to contain
             # (version, dev_stage, non_release_version)
             # That information is no longer available
-            self.assertEquals(res[1], ('', '', ''))
+            self.assertEqual(res[1], ('', '', ''))
 
             if sys.byteorder == 'little':
-                self.assertEquals(res[2], 'i386')
+                self.assertIn(res[2], ('i386', 'x86_64'))
             else:
-                self.assertEquals(res[2], 'PowerPC')
+                self.assertEqual(res[2], 'PowerPC')
+
+
+    @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
+    def test_mac_ver_with_fork(self):
+        # Issue7895: platform.mac_ver() crashes when using fork without exec
+        #
+        # This test checks that the fix for that issue works.
+        #
+        pid = os.fork()
+        if pid == 0:
+            # child
+            info = platform.mac_ver()
+            os._exit(0)
+
+        else:
+            # parent
+            cpid, sts = os.waitpid(pid, 0)
+            self.assertEqual(cpid, pid)
+            self.assertEqual(sts, 0)
 
     def test_dist(self):
         res = platform.dist()

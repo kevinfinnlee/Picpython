@@ -800,8 +800,25 @@ static int obj2ast_object(PyObject* obj, PyObject** out, PyArena* arena)
     return 0;
 }
 
-#define obj2ast_identifier obj2ast_object
-#define obj2ast_string obj2ast_object
+static int obj2ast_identifier(PyObject* obj, PyObject** out, PyArena* arena)
+{
+    if (!PyString_CheckExact(obj) && obj != Py_None) {
+        PyErr_Format(PyExc_TypeError,
+                    "AST identifier must be of type str");
+        return 1;
+    }
+    return obj2ast_object(obj, out, arena);
+}
+
+static int obj2ast_string(PyObject* obj, PyObject** out, PyArena* arena)
+{
+    if (!PyString_CheckExact(obj) && !PyUnicode_CheckExact(obj)) {
+        PyErr_SetString(PyExc_TypeError,
+                       "AST string must be of type str or unicode");
+        return 1;
+    }
+    return obj2ast_object(obj, out, arena);
+}
 
 static int obj2ast_int(PyObject* obj, int* out, PyArena* arena)
 {
@@ -903,9 +920,6 @@ static int add_ast_fields(void)
             self.emit("if (!%s_singleton) return 0;" % cons.name, 1)
 
 
-def parse_version(mod):
-    return mod.version.value[12:-3]
-
 class ASTModuleVisitor(PickleVisitor):
 
     def visitModule(self, mod):
@@ -920,9 +934,9 @@ class ASTModuleVisitor(PickleVisitor):
         self.emit('if (PyDict_SetItemString(d, "AST", (PyObject*)&AST_type) < 0) return;', 1)
         self.emit('if (PyModule_AddIntConstant(m, "PyCF_ONLY_AST", PyCF_ONLY_AST) < 0)', 1)
         self.emit("return;", 2)
-        # Value of version: "$Revision: 81868 $"
+        # Value of version: "$Revision$"
         self.emit('if (PyModule_AddStringConstant(m, "__version__", "%s") < 0)'
-                % parse_version(mod), 1)
+                % mod.version, 1)
         self.emit("return;", 2)
         for dfn in mod.dfns:
             self.visit(dfn)
@@ -963,7 +977,7 @@ def has_sequence(types, doing_specialization):
 
 
 class StaticVisitor(PickleVisitor):
-    CODE = '''Very simple, always emit this static code.  Overide CODE'''
+    CODE = '''Very simple, always emit this static code.  Override CODE'''
 
     def visit(self, object):
         self.emit(self.CODE, 0, reflow=False)
@@ -1019,7 +1033,7 @@ class ObjVisitor(PickleVisitor):
             self.emit("case %s:" % t.name, 2)
             self.emit("Py_INCREF(%s_singleton);" % t.name, 3)
             self.emit("return %s_singleton;" % t.name, 3)
-        self.emit("default:" % name, 2)
+        self.emit("default:", 2)
         self.emit('/* should never happen, but just in case ... */', 3)
         code = "PyErr_Format(PyExc_SystemError, \"unknown %s found\");" % name
         self.emit(code, 3, reflow=False)
@@ -1103,10 +1117,18 @@ PyObject* PyAST_mod2obj(mod_ty t)
 mod_ty PyAST_obj2mod(PyObject* ast, PyArena* arena, int mode)
 {
     mod_ty res;
-    PyObject *req_type[] = {(PyObject*)Module_type, (PyObject*)Expression_type,
-                            (PyObject*)Interactive_type};
-    char *req_name[] = {"Module", "Expression", "Interactive"};
+    PyObject *req_type[3];
+    char *req_name[3];
     int isinstance;
+
+    req_type[0] = (PyObject*)Module_type;
+    req_type[1] = (PyObject*)Expression_type;
+    req_type[2] = (PyObject*)Interactive_type;
+
+    req_name[0] = "Module";
+    req_name[1] = "Expression";
+    req_name[2] = "Interactive";
+
     assert(0 <= mode && mode <= 2);
 
     init_types();
@@ -1160,6 +1182,7 @@ def main(srcfile):
     argv0 = os.sep.join(components[-2:])
     auto_gen_msg = common_msg % argv0
     mod = asdl.parse(srcfile)
+    mod.version = "82160"
     if not asdl.check(mod):
         sys.exit(1)
     if INC_DIR:
@@ -1181,7 +1204,7 @@ def main(srcfile):
         p = os.path.join(SRC_DIR, str(mod.name) + "-ast.c")
         f = open(p, "wb")
         f.write(auto_gen_msg)
-        f.write(c_file_msg % parse_version(mod))
+        f.write(c_file_msg % mod.version)
         f.write('#include "Python.h"\n')
         f.write('#include "%s-ast.h"\n' % mod.name)
         f.write('\n')

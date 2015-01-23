@@ -3,6 +3,8 @@ import unittest
 import os
 import sys
 
+from test.test_support import run_unittest
+
 from distutils.command.build_clib import build_clib
 from distutils.errors import DistutilsSetupError
 from distutils.tests import support
@@ -55,14 +57,14 @@ class BuildCLibTestCase(support.TempdirManager,
         self.assertRaises(DistutilsSetupError, cmd.get_source_files)
 
         cmd.libraries = [('name', {'sources': ['a', 'b']})]
-        self.assertEquals(cmd.get_source_files(), ['a', 'b'])
+        self.assertEqual(cmd.get_source_files(), ['a', 'b'])
 
         cmd.libraries = [('name', {'sources': ('a', 'b')})]
-        self.assertEquals(cmd.get_source_files(), ['a', 'b'])
+        self.assertEqual(cmd.get_source_files(), ['a', 'b'])
 
         cmd.libraries = [('name', {'sources': ('a', 'b')}),
                          ('name2', {'sources': ['c', 'd']})]
-        self.assertEquals(cmd.get_source_files(), ['a', 'b', 'c', 'd'])
+        self.assertEqual(cmd.get_source_files(), ['a', 'b', 'c', 'd'])
 
     def test_build_libraries(self):
 
@@ -75,7 +77,7 @@ class BuildCLibTestCase(support.TempdirManager,
 
         cmd.compiler = FakeCompiler()
 
-        # build_libraries is also doing a bit of typoe checking
+        # build_libraries is also doing a bit of typo checking
         lib = [('name', {'sources': 'notvalid'})]
         self.assertRaises(DistutilsSetupError, cmd.build_libraries, lib)
 
@@ -91,20 +93,17 @@ class BuildCLibTestCase(support.TempdirManager,
 
         cmd.include_dirs = 'one-dir'
         cmd.finalize_options()
-        self.assertEquals(cmd.include_dirs, ['one-dir'])
+        self.assertEqual(cmd.include_dirs, ['one-dir'])
 
         cmd.include_dirs = None
         cmd.finalize_options()
-        self.assertEquals(cmd.include_dirs, [])
+        self.assertEqual(cmd.include_dirs, [])
 
         cmd.distribution.libraries = 'WONTWORK'
         self.assertRaises(DistutilsSetupError, cmd.finalize_options)
 
+    @unittest.skipIf(sys.platform == 'win32', "can't test on Windows")
     def test_run(self):
-        # can't test on windows
-        if sys.platform == 'win32':
-            return
-
         pkg_dir, dist = self.create_dist()
         cmd = build_clib(dist)
 
@@ -120,7 +119,8 @@ class BuildCLibTestCase(support.TempdirManager,
         # before we run the command, we want to make sure
         # all commands are present on the system
         # by creating a compiler and checking its executables
-        from distutils.ccompiler import new_compiler, customize_compiler
+        from distutils.ccompiler import new_compiler
+        from distutils.sysconfig import customize_compiler
 
         compiler = new_compiler()
         customize_compiler(compiler)
@@ -128,16 +128,16 @@ class BuildCLibTestCase(support.TempdirManager,
             if ccmd is None:
                 continue
             if find_executable(ccmd[0]) is None:
-                return # can't test
+                self.skipTest('The %r command is not found' % ccmd[0])
 
         # this should work
         cmd.run()
 
         # let's check the result
-        self.assertTrue('libfoo.a' in os.listdir(build_temp))
+        self.assertIn('libfoo.a', os.listdir(build_temp))
 
 def test_suite():
     return unittest.makeSuite(BuildCLibTestCase)
 
 if __name__ == "__main__":
-    unittest.main(defaultTest="test_suite")
+    run_unittest(test_suite())

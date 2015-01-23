@@ -3,7 +3,7 @@
 Implements the Distutils 'bdist_rpm' command (create RPM source and binary
 distributions)."""
 
-__revision__ = "$Id: bdist_rpm.py 76956 2009-12-21 01:22:46Z tarek.ziade $"
+__revision__ = "$Id$"
 
 import sys
 import os
@@ -12,6 +12,7 @@ import string
 from distutils.core import Command
 from distutils.debug import DEBUG
 from distutils.file_util import write_file
+from distutils.sysconfig import get_python_version
 from distutils.errors import (DistutilsOptionError, DistutilsPlatformError,
                               DistutilsFileError, DistutilsExecError)
 from distutils import log
@@ -355,36 +356,52 @@ class bdist_rpm (Command):
             src_rpm, non_src_rpm, spec_path)
 
         out = os.popen(q_cmd)
-        binary_rpms = []
-        source_rpm = None
-        while 1:
-            line = out.readline()
-            if not line:
-                break
-            l = string.split(string.strip(line))
-            assert(len(l) == 2)
-            binary_rpms.append(l[1])
-            # The source rpm is named after the first entry in the spec file
-            if source_rpm is None:
-                source_rpm = l[0]
+        try:
+            binary_rpms = []
+            source_rpm = None
+            while 1:
+                line = out.readline()
+                if not line:
+                    break
+                l = string.split(string.strip(line))
+                assert(len(l) == 2)
+                binary_rpms.append(l[1])
+                # The source rpm is named after the first entry in the spec file
+                if source_rpm is None:
+                    source_rpm = l[0]
 
-        status = out.close()
-        if status:
-            raise DistutilsExecError("Failed to execute: %s" % repr(q_cmd))
+            status = out.close()
+            if status:
+                raise DistutilsExecError("Failed to execute: %s" % repr(q_cmd))
+
+        finally:
+            out.close()
 
         self.spawn(rpm_cmd)
 
         if not self.dry_run:
+            if self.distribution.has_ext_modules():
+                pyversion = get_python_version()
+            else:
+                pyversion = 'any'
+
             if not self.binary_only:
                 srpm = os.path.join(rpm_dir['SRPMS'], source_rpm)
                 assert(os.path.exists(srpm))
                 self.move_file(srpm, self.dist_dir)
+                filename = os.path.join(self.dist_dir, source_rpm)
+                self.distribution.dist_files.append(
+                    ('bdist_rpm', pyversion, filename))
 
             if not self.source_only:
                 for rpm in binary_rpms:
                     rpm = os.path.join(rpm_dir['RPMS'], rpm)
                     if os.path.exists(rpm):
                         self.move_file(rpm, self.dist_dir)
+                        filename = os.path.join(self.dist_dir,
+                                                os.path.basename(rpm))
+                        self.distribution.dist_files.append(
+                            ('bdist_rpm', pyversion, filename))
     # run()
 
     def _dist_path(self, path):

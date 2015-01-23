@@ -1,7 +1,9 @@
 import parser
 import unittest
 import sys
-from test import test_support
+import struct
+from test import test_support as support
+from test.script_helper import assert_python_failure
 
 #
 #  First, we test that we can generate trees from valid source fragments,
@@ -19,8 +21,8 @@ class RoundtripLegalSyntaxTestCase(unittest.TestCase):
         except parser.ParserError, why:
             self.fail("could not roundtrip %r: %s" % (s, why))
 
-        self.assertEquals(t, st2.totuple(),
-                          "could not re-generate syntax tree")
+        self.assertEqual(t, st2.totuple(),
+                         "could not re-generate syntax tree")
 
     def check_expr(self, s):
         self.roundtrip(parser.expr, s)
@@ -180,6 +182,14 @@ class RoundtripLegalSyntaxTestCase(unittest.TestCase):
 
     def test_class_defs(self):
         self.check_suite("class foo():pass")
+        self.check_suite("@class_decorator\n"
+                         "class foo():pass")
+        self.check_suite("@class_decorator(arg)\n"
+                         "class foo():pass")
+        self.check_suite("@decorator1\n"
+                         "@decorator2\n"
+                         "class foo():pass")
+
 
     def test_import_from_statement(self):
         self.check_suite("from sys.path import *")
@@ -212,6 +222,12 @@ class RoundtripLegalSyntaxTestCase(unittest.TestCase):
         self.check_suite("import sys, math")
         self.check_suite("import sys as system, math")
         self.check_suite("import sys, math as my_math")
+
+    def test_relative_imports(self):
+        self.check_suite("from . import name")
+        self.check_suite("from .. import name")
+        self.check_suite("from .pkg import name")
+        self.check_suite("from ..pkg import name")
 
     def test_pep263(self):
         self.check_suite("# -*- coding: iso-8859-1 -*-\n"
@@ -511,6 +527,20 @@ class IllegalSyntaxTestCase(unittest.TestCase):
                 (0, ''))
         self.check_bad_tree(tree, "malformed global ast")
 
+    def test_missing_import_source(self):
+        # from import a
+        tree = \
+            (257,
+             (267,
+              (268,
+               (269,
+                (281,
+                 (283, (1, 'from'), (1, 'import'),
+                  (286, (284, (1, 'fred')))))),
+               (4, ''))),
+             (4, ''), (0, ''))
+        self.check_bad_tree(tree, "from import a")
+
 
 class CompileTestCase(unittest.TestCase):
 
@@ -519,14 +549,14 @@ class CompileTestCase(unittest.TestCase):
     def test_compile_expr(self):
         st = parser.expr('2 + 3')
         code = parser.compilest(st)
-        self.assertEquals(eval(code), 5)
+        self.assertEqual(eval(code), 5)
 
     def test_compile_suite(self):
         st = parser.suite('x = 2; y = x + 3')
         code = parser.compilest(st)
         globs = {}
         exec code in globs
-        self.assertEquals(globs['y'], 5)
+        self.assertEqual(globs['y'], 5)
 
     def test_compile_error(self):
         st = parser.suite('1 = 3 + 4')
@@ -538,8 +568,19 @@ class CompileTestCase(unittest.TestCase):
         st = parser.suite('a = u"\u1"')
         self.assertRaises(SyntaxError, parser.compilest, st)
 
+    def test_issue_9011(self):
+        # Issue 9011: compilation of an unary minus expression changed
+        # the meaning of the ST, so that a second compilation produced
+        # incorrect results.
+        st = parser.expr('-3')
+        code1 = parser.compilest(st)
+        self.assertEqual(eval(code1), -3)
+        code2 = parser.compilest(st)
+        self.assertEqual(eval(code2), -3)
+
+
 class ParserStackLimitTestCase(unittest.TestCase):
-    """try to push the parser to/over it's limits.
+    """try to push the parser to/over its limits.
     see http://bugs.python.org/issue1881 for a discussion
     """
     def _nested_expression(self, level):
@@ -552,15 +593,63 @@ class ParserStackLimitTestCase(unittest.TestCase):
 
     def test_trigger_memory_error(self):
         e = self._nested_expression(100)
-        print >>sys.stderr, "Expecting 's_push: parser stack overflow' in next line"
-        self.assertRaises(MemoryError, parser.expr, e)
+        rc, out, err = assert_python_failure('-c', e)
+        # parsing the expression will result in an error message
+        # followed by a MemoryError (see #11963)
+        self.assertIn(b's_push: parser stack overflow', err)
+        self.assertIn(b'MemoryError', err)
+
+class STObjectTestCase(unittest.TestCase):
+    """Test operations on ST objects themselves"""
+
+    check_sizeof = support.check_sizeof
+
+    @support.cpython_only
+    def test_sizeof(self):
+        def XXXROUNDUP(n):
+            if n <= 1:
+                return n
+            if n <= 128:
+                return (n + 3) & ~3
+            return 1 << (n - 1).bit_length()
+
+        basesize = support.calcobjsize('Pii')
+        nodesize = struct.calcsize('hP3iP0h')
+        def sizeofchildren(node):
+            if node is None:
+                return 0
+            res = 0
+            hasstr = len(node) > 1 and isinstance(node[-1], str)
+            if hasstr:
+                res += len(node[-1]) + 1
+            children = node[1:-1] if hasstr else node[1:]
+            if children:
+                res += XXXROUNDUP(len(children)) * nodesize
+                for child in children:
+                    res += sizeofchildren(child)
+            return res
+
+        def check_st_sizeof(st):
+            self.check_sizeof(st, basesize + nodesize +
+                                  sizeofchildren(st.totuple()))
+
+        check_st_sizeof(parser.expr('2 + 3'))
+        check_st_sizeof(parser.expr('2 + 3 + 4'))
+        check_st_sizeof(parser.suite('x = 2 + 3'))
+        check_st_sizeof(parser.suite(''))
+        check_st_sizeof(parser.suite('# -*- coding: utf-8 -*-'))
+        check_st_sizeof(parser.expr('[' + '2,' * 1000 + ']'))
+
+
+    # XXX tests for pickling and unpickling of ST objects should go here
 
 def test_main():
-    test_support.run_unittest(
+    support.run_unittest(
         RoundtripLegalSyntaxTestCase,
         IllegalSyntaxTestCase,
         CompileTestCase,
         ParserStackLimitTestCase,
+        STObjectTestCase,
     )
 
 

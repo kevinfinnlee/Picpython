@@ -19,6 +19,11 @@ except ImportError:
     threading = None
 
 try:
+    import gzip
+except ImportError:
+    gzip = None
+
+try:
     unicode
 except NameError:
     have_unicode = False
@@ -44,8 +49,8 @@ alist = [{'astring': 'foo@bar.baz.spam',
 class XMLRPCTestCase(unittest.TestCase):
 
     def test_dump_load(self):
-        self.assertEquals(alist,
-                          xmlrpclib.loads(xmlrpclib.dumps((alist,)))[0][0])
+        self.assertEqual(alist,
+                         xmlrpclib.loads(xmlrpclib.dumps((alist,)))[0][0])
 
     def test_dump_bare_datetime(self):
         # This checks that an unwrapped datetime.date object can be handled
@@ -55,22 +60,22 @@ class XMLRPCTestCase(unittest.TestCase):
         dt = datetime.datetime(2005, 02, 10, 11, 41, 23)
         s = xmlrpclib.dumps((dt,))
         (newdt,), m = xmlrpclib.loads(s, use_datetime=1)
-        self.assertEquals(newdt, dt)
-        self.assertEquals(m, None)
+        self.assertEqual(newdt, dt)
+        self.assertEqual(m, None)
 
         (newdt,), m = xmlrpclib.loads(s, use_datetime=0)
-        self.assertEquals(newdt, xmlrpclib.DateTime('20050210T11:41:23'))
+        self.assertEqual(newdt, xmlrpclib.DateTime('20050210T11:41:23'))
 
     def test_datetime_before_1900(self):
         # same as before but with a date before 1900
         dt = datetime.datetime(1, 02, 10, 11, 41, 23)
         s = xmlrpclib.dumps((dt,))
         (newdt,), m = xmlrpclib.loads(s, use_datetime=1)
-        self.assertEquals(newdt, dt)
-        self.assertEquals(m, None)
+        self.assertEqual(newdt, dt)
+        self.assertEqual(m, None)
 
         (newdt,), m = xmlrpclib.loads(s, use_datetime=0)
-        self.assertEquals(newdt, xmlrpclib.DateTime('00010210T11:41:23'))
+        self.assertEqual(newdt, xmlrpclib.DateTime('00010210T11:41:23'))
 
     def test_cmp_datetime_DateTime(self):
         now = datetime.datetime.now()
@@ -98,7 +103,7 @@ class XMLRPCTestCase(unittest.TestCase):
         t.x = 100
         t.y = "Hello"
         ((t2,), dummy) = xmlrpclib.loads(xmlrpclib.dumps((t,)))
-        self.assertEquals(t2, t.__dict__)
+        self.assertEqual(t2, t.__dict__)
 
     def test_dump_big_long(self):
         self.assertRaises(OverflowError, xmlrpclib.dumps, (2L**99,))
@@ -141,8 +146,8 @@ class XMLRPCTestCase(unittest.TestCase):
         value = alist + [None]
         arg1 = (alist + [None],)
         strg = xmlrpclib.dumps(arg1, allow_none=True)
-        self.assertEquals(value,
-                          xmlrpclib.loads(strg)[0][0])
+        self.assertEqual(value,
+                         xmlrpclib.loads(strg)[0][0])
         self.assertRaises(TypeError, xmlrpclib.dumps, (arg1,))
 
     def test_default_encoding_issues(self):
@@ -178,14 +183,14 @@ class XMLRPCTestCase(unittest.TestCase):
 
         items = d.items()
         if have_unicode:
-            self.assertEquals(s, u"abc \x95")
+            self.assertEqual(s, u"abc \x95")
             self.assertIsInstance(s, unicode)
-            self.assertEquals(items, [(u"def \x96", u"ghi \x97")])
+            self.assertEqual(items, [(u"def \x96", u"ghi \x97")])
             self.assertIsInstance(items[0][0], unicode)
             self.assertIsInstance(items[0][1], unicode)
         else:
-            self.assertEquals(s, "abc \xc2\x95")
-            self.assertEquals(items, [("def \xc2\x96", "ghi \xc2\x97")])
+            self.assertEqual(s, "abc \xc2\x95")
+            self.assertEqual(items, [("def \xc2\x96", "ghi \xc2\x97")])
 
 
 class HelperTestCase(unittest.TestCase):
@@ -204,8 +209,8 @@ class FaultTestCase(unittest.TestCase):
         f = xmlrpclib.Fault(42, 'Test Fault')
         s = xmlrpclib.dumps((f,))
         (newf,), m = xmlrpclib.loads(s)
-        self.assertEquals(newf, {'faultCode': 42, 'faultString': 'Test Fault'})
-        self.assertEquals(m, None)
+        self.assertEqual(newf, {'faultCode': 42, 'faultString': 'Test Fault'})
+        self.assertEqual(m, None)
 
         s = xmlrpclib.Marshaller().dumps(f)
         self.assertRaises(xmlrpclib.Fault, xmlrpclib.loads, s)
@@ -308,7 +313,7 @@ def http_server(evt, numrequests, requestHandler=None):
         global ADDR, PORT, URL
         ADDR, PORT = serv.socket.getsockname()
         #connect to IP address directly.  This avoids socket.create_connection()
-        #trying to connect to to "localhost" using all address families, which
+        #trying to connect to "localhost" using all address families, which
         #causes slowdown e.g. on vista which supports AF_INET6.  The server listens
         #on AF_INET only.
         URL = "http://%s:%d"%(ADDR, PORT)
@@ -367,7 +372,7 @@ def http_multi_server(evt, numrequests, requestHandler=None):
         global ADDR, PORT, URL
         ADDR, PORT = serv.socket.getsockname()
         #connect to IP address directly.  This avoids socket.create_connection()
-        #trying to connect to to "localhost" using all address families, which
+        #trying to connect to "localhost" using all address families, which
         #causes slowdown e.g. on vista which supports AF_INET6.  The server listens
         #on AF_INET only.
         URL = "http://%s:%d"%(ADDR, PORT)
@@ -472,6 +477,9 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
+    def test_unicode_host(self):
+        server = xmlrpclib.ServerProxy(u"http://%s:%d/RPC2"%(ADDR, PORT))
+        self.assertEqual(server.add("a", u"\xe9"), u"a\xe9")
 
     # [ch] The test 404 is causing lots of false alarms.
     def XXXtest_404(self):
@@ -586,6 +594,12 @@ class SimpleServerTestCase(BaseServerTestCase):
         # This avoids waiting for the socket timeout.
         self.test_simple1()
 
+    def test_partial_post(self):
+        # Check that a partial POST doesn't make the server loop: issue #14001.
+        conn = httplib.HTTPConnection(ADDR, PORT)
+        conn.request('POST', '/RPC2 HTTP/1.0\r\nContent-Length: 100\r\n\r\nbye')
+        conn.close()
+
 class MultiPathServerTestCase(BaseServerTestCase):
     threadFunc = staticmethod(http_multi_server)
     request_count = 2
@@ -672,6 +686,7 @@ class KeepaliveServerTestCase2(BaseKeepaliveServerTestCase):
 
 #A test case that verifies that gzip encoding works in both directions
 #(for a request and the response)
+@unittest.skipUnless(gzip, 'gzip not available')
 class GzipServerTestCase(BaseServerTestCase):
     #a request handler that supports keep-alive and logs requests into a
     #class variable
@@ -722,7 +737,7 @@ class GzipServerTestCase(BaseServerTestCase):
         with cm:
             p.pow(6, 8)
 
-    def test_gsip_response(self):
+    def test_gzip_response(self):
         t = self.Transport()
         p = xmlrpclib.ServerProxy(URL, transport=t)
         old = self.requestHandler.encode_threshold
@@ -734,6 +749,23 @@ class GzipServerTestCase(BaseServerTestCase):
         b = t.response_length
         self.requestHandler.encode_threshold = old
         self.assertTrue(a>b)
+
+    def test_gzip_decode_limit(self):
+        max_gzip_decode = 20 * 1024 * 1024
+        data = '\0' * max_gzip_decode
+        encoded = xmlrpclib.gzip_encode(data)
+        decoded = xmlrpclib.gzip_decode(encoded)
+        self.assertEqual(len(decoded), max_gzip_decode)
+
+        data = '\0' * (max_gzip_decode + 1)
+        encoded = xmlrpclib.gzip_encode(data)
+
+        with self.assertRaisesRegexp(ValueError,
+                                     "max gzipped payload length exceeded"):
+            xmlrpclib.gzip_decode(encoded)
+
+        xmlrpclib.gzip_decode(encoded, max_decode=-1)
+
 
 #Test special attributes of the ServerProxy object
 class ServerProxyTestCase(unittest.TestCase):
@@ -903,7 +935,7 @@ class CGIHandlerTestCase(unittest.TestCase):
 
         content = handle[handle.find("<?xml"):]
 
-        self.assertEquals(
+        self.assertEqual(
             int(re.search('Content-Length: (\d+)', handle).group(1)),
             len(content))
 
@@ -1002,11 +1034,7 @@ def test_main():
     xmlrpc_tests.append(SimpleServerTestCase)
     xmlrpc_tests.append(KeepaliveServerTestCase1)
     xmlrpc_tests.append(KeepaliveServerTestCase2)
-    try:
-        import gzip
-        xmlrpc_tests.append(GzipServerTestCase)
-    except ImportError:
-        pass #gzip not supported in this build
+    xmlrpc_tests.append(GzipServerTestCase)
     xmlrpc_tests.append(MultiPathServerTestCase)
     xmlrpc_tests.append(ServerProxyTestCase)
     xmlrpc_tests.append(FailingServerTestCase)

@@ -97,7 +97,7 @@ class PyclbrTest(TestCase):
                 self.assertIsInstance(py_item, (FunctionType, BuiltinFunctionType))
                 if py_item.__module__ != moduleName:
                     continue   # skip functions that came from somewhere else
-                self.assertEquals(py_item.__module__, value.module)
+                self.assertEqual(py_item.__module__, value.module)
             else:
                 self.assertIsInstance(py_item, (ClassType, type))
                 if py_item.__module__ != moduleName:
@@ -126,7 +126,7 @@ class PyclbrTest(TestCase):
 
                 try:
                     self.assertListEq(foundMethods, actualMethods, ignore)
-                    self.assertEquals(py_item.__module__, value.module)
+                    self.assertEqual(py_item.__module__, value.module)
 
                     self.assertEqualsOrIgnored(py_item.__name__, value.name,
                                                ignore)
@@ -180,13 +180,18 @@ class PyclbrTest(TestCase):
         cm('pickle')
         cm('aifc', ignore=('openfp',))  # set with = in module
         cm('Cookie')
-        cm('sre_parse', ignore=('dump',)) # from sre_constants import *
+        cm('sre_parse', ignore=('dump', 'groups')) # from sre_constants import *; property
         cm('pdb')
         cm('pydoc')
 
         # Tests for modules inside packages
         cm('email.parser')
         cm('test.test_pyclbr')
+
+    def test_issue_14798(self):
+        # test ImportError is raised when the first part of a dotted name is
+        # not a package
+        self.assertRaises(ImportError, pyclbr.readmodule_ex, 'asyncore.foo')
 
 
 def test_main():

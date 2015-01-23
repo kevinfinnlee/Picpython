@@ -7,13 +7,6 @@ import unittest
 from test_all import db, test_support, get_new_environment_path, \
         get_new_database_path
 
-try :
-    a=set()
-except : # Python 2.3
-    from sets import Set as set
-else :
-    del a
-
 from test_all import verbose
 
 #----------------------------------------------------------------------
@@ -37,15 +30,11 @@ class DBTxn_distributed(unittest.TestCase):
         self.db = db.DB(self.dbenv)
         self.db.set_re_len(db.DB_GID_SIZE)
         if must_open_db :
-            if db.version() >= (4,2) :
-                txn=self.dbenv.txn_begin()
-                self.db.open(self.filename,
-                        db.DB_QUEUE, db.DB_CREATE | db.DB_THREAD, 0666,
-                        txn=txn)
-                txn.commit()
-            else :
-                self.db.open(self.filename,
-                        db.DB_QUEUE, db.DB_CREATE | db.DB_THREAD, 0666)
+            txn=self.dbenv.txn_begin()
+            self.db.open(self.filename,
+                    db.DB_QUEUE, db.DB_CREATE | db.DB_THREAD, 0666,
+                    txn=txn)
+            txn.commit()
 
     def setUp(self) :
         self.homeDir = get_new_environment_path()
@@ -88,9 +77,9 @@ class DBTxn_distributed(unittest.TestCase):
     # Get "to be recovered" transactions but
     # let them be garbage collected.
         recovered_txns=self.dbenv.txn_recover()
-        self.assertEquals(self.num_txns,len(recovered_txns))
+        self.assertEqual(self.num_txns,len(recovered_txns))
         for gid,txn in recovered_txns :
-            self.assert_(gid in txns)
+            self.assertTrue(gid in txns)
         del txn
         del recovered_txns
 
@@ -99,7 +88,7 @@ class DBTxn_distributed(unittest.TestCase):
     # Get "to be recovered" transactions. Commit, abort and
     # discard them.
         recovered_txns=self.dbenv.txn_recover()
-        self.assertEquals(self.num_txns,len(recovered_txns))
+        self.assertEqual(self.num_txns,len(recovered_txns))
         discard_txns=set()
         committed_txns=set()
         state=0
@@ -122,7 +111,7 @@ class DBTxn_distributed(unittest.TestCase):
     # Verify the discarded transactions are still
     # around, and dispose them.
         recovered_txns=self.dbenv.txn_recover()
-        self.assertEquals(len(discard_txns),len(recovered_txns))
+        self.assertEqual(len(discard_txns),len(recovered_txns))
         for gid,txn in recovered_txns :
             txn.abort()
         del txn
@@ -133,8 +122,8 @@ class DBTxn_distributed(unittest.TestCase):
     # Be sure there are not pending transactions.
     # Check also database size.
         recovered_txns=self.dbenv.txn_recover()
-        self.assert_(len(recovered_txns)==0)
-        self.assertEquals(len(committed_txns),self.db.stat()["nkeys"])
+        self.assertTrue(len(recovered_txns)==0)
+        self.assertEqual(len(committed_txns),self.db.stat()["nkeys"])
 
 class DBTxn_distributedSYNC(DBTxn_distributed):
     nosync=False

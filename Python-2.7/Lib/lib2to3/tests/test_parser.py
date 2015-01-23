@@ -19,6 +19,16 @@ import sys
 # Local imports
 from lib2to3.pgen2 import tokenize
 from ..pgen2.parse import ParseError
+from lib2to3.pygram import python_symbols as syms
+
+
+class TestDriver(support.TestCase):
+
+    def test_formfeed(self):
+        s = """print 1\n\x0Cprint 2\n"""
+        t = driver.parse_string(s)
+        self.assertEqual(t.children[0].children[0].type, syms.print_stmt)
+        self.assertEqual(t.children[1].children[0].type, syms.print_stmt)
 
 
 class GrammarTest(support.TestCase):
@@ -32,6 +42,19 @@ class GrammarTest(support.TestCase):
             pass
         else:
             raise AssertionError("Syntax shouldn't have been valid")
+
+
+class TestMatrixMultiplication(GrammarTest):
+    def test_matrix_multiplication_operator(self):
+        self.validate("a @ b")
+        self.validate("a @= b")
+
+
+class TestYieldFrom(GrammarTest):
+    def test_matrix_multiplication_operator(self):
+        self.validate("yield from x")
+        self.validate("(yield from x) + y")
+        self.invalid_syntax("yield from")
 
 
 class TestRaiseChanges(GrammarTest):
@@ -63,7 +86,7 @@ class TestRaiseChanges(GrammarTest):
         self.invalid_syntax("raise E from")
 
 
-# Adapated from Python 3's Lib/test/test_grammar.py:GrammarTests.testFuncdef
+# Adaptated from Python 3's Lib/test/test_grammar.py:GrammarTests.testFuncdef
 class TestFunctionAnnotations(GrammarTest):
     def test_1(self):
         self.validate("""def f(x) -> list: pass""")
@@ -155,8 +178,8 @@ class TestParserIdempotency(support.TestCase):
         for filepath in support.all_project_files():
             with open(filepath, "rb") as fp:
                 encoding = tokenize.detect_encoding(fp.readline)[0]
-            self.assertTrue(encoding is not None,
-                            "can't detect encoding for %s" % filepath)
+            self.assertIsNotNone(encoding,
+                                 "can't detect encoding for %s" % filepath)
             with open(filepath, "r") as fp:
                 source = fp.read()
                 source = source.decode(encoding)

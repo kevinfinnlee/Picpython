@@ -25,6 +25,20 @@
 
 /* some functions handy for testing */
 
+EXPORT(int)
+_testfunc_cbk_reg_int(int a, int b, int c, int d, int e,
+                      int (*func)(int, int, int, int, int))
+{
+    return func(a*a, b*b, c*c, d*d, e*e);
+}
+
+EXPORT(double)
+_testfunc_cbk_reg_double(double a, double b, double c, double d, double e,
+                         double (*func)(double, double, double, double, double))
+{
+    return func(a*a, b*b, c*c, d*d, e*e);
+}
+
 EXPORT(void)testfunc_array(int values[4])
 {
     printf("testfunc_array %d %d %d %d\n",
@@ -524,6 +538,49 @@ EXPORT(int) PointInRect(RECT *prc, POINT pt)
     if (pt.y > prc->bottom)
         return 0;
     return 1;
+}
+
+EXPORT(long left = 10);
+EXPORT(long top = 20);
+EXPORT(long right = 30);
+EXPORT(long bottom = 40);
+
+EXPORT(RECT) ReturnRect(int i, RECT ar, RECT* br, POINT cp, RECT dr,
+                        RECT *er, POINT fp, RECT gr)
+{
+    /*Check input */
+    if (ar.left + br->left + dr.left + er->left + gr.left != left * 5)
+    {
+        ar.left = 100;
+        return ar;
+    }
+    if (ar.right + br->right + dr.right + er->right + gr.right != right * 5)
+    {
+        ar.right = 100;
+        return ar;
+    }
+    if (cp.x != fp.x)
+    {
+        ar.left = -100;
+    }
+    if (cp.y != fp.y)
+    {
+        ar.left = -200;
+    }
+    switch(i)
+    {
+    case 0:
+        return ar;
+        break;
+    case 1:
+        return dr;
+        break;
+    case 2:
+        return gr;
+        break;
+
+    }
+    return ar;
 }
 
 typedef struct {

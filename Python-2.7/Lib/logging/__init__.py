@@ -1,4 +1,4 @@
-# Copyright 2001-2010 by Vinay Sajip. All Rights Reserved.
+# Copyright 2001-2014 by Vinay Sajip. All Rights Reserved.
 #
 # Permission to use, copy, modify, and distribute this software and its
 # documentation for any purpose and without fee is hereby granted,
@@ -16,14 +16,14 @@
 
 """
 Logging package for Python. Based on PEP 282 and comments thereto in
-comp.lang.python, and influenced by Apache's log4j system.
+comp.lang.python.
 
-Copyright (C) 2001-2010 Vinay Sajip. All Rights Reserved.
+Copyright (C) 2001-2014 Vinay Sajip. All Rights Reserved.
 
 To use, simply 'import logging' and log away!
 """
 
-import sys, os, time, cStringIO, traceback, warnings, weakref
+import sys, os, time, cStringIO, traceback, warnings, weakref, collections
 
 __all__ = ['BASIC_FORMAT', 'BufferingFormatter', 'CRITICAL', 'DEBUG', 'ERROR',
            'FATAL', 'FileHandler', 'Filter', 'Formatter', 'Handler', 'INFO',
@@ -46,6 +46,7 @@ except ImportError:
 
 __author__  = "Vinay Sajip <vinay_sajip@red-dove.com>"
 __status__  = "production"
+# Note: the attributes below are no longer maintained.
 __version__ = "0.5.1.2"
 __date__    = "07 February 2010"
 
@@ -180,7 +181,7 @@ def addLevelName(level, levelName):
         _releaseLock()
 
 def _checkLevel(level):
-    if isinstance(level, int):
+    if isinstance(level, (int, long)):
         rv = level
     elif str(level) == level:
         if level not in _levelNames:
@@ -260,7 +261,13 @@ class LogRecord(object):
         # 'Value is %d' instead of 'Value is 0'.
         # For the use case of passing a dictionary, this should not be a
         # problem.
-        if args and len(args) == 1 and isinstance(args[0], dict) and args[0]:
+        # Issue #21172: a request was made to relax the isinstance check
+        # to hasattr(args[0], '__getitem__'). However, the docs on string
+        # formatting still seem to suggest a mapping object is required.
+        # Thus, while not removing the isinstance check, it does now look
+        # for collections.Mapping rather than, as before, dict.
+        if (args and len(args) == 1 and isinstance(args[0], collections.Mapping)
+            and args[0]):
             args = args[0]
         self.args = args
         self.levelname = getLevelName(level)
@@ -478,8 +485,12 @@ class Formatter(object):
             except UnicodeError:
                 # Sometimes filenames have non-ASCII chars, which can lead
                 # to errors when s is Unicode and record.exc_text is str
-                # See issue 8924
-                s = s + record.exc_text.decode(sys.getfilesystemencoding())
+                # See issue 8924.
+                # We also use replace for when there are multiple
+                # encodings, e.g. UTF-8 for the filesystem and latin-1
+                # for a script. See issue 13232.
+                s = s + record.exc_text.decode(sys.getfilesystemencoding(),
+                                               'replace')
         return s
 
 #
@@ -617,12 +628,18 @@ def _removeHandlerRef(wr):
     """
     Remove a handler reference from the internal cleanup list.
     """
-    _acquireLock()
-    try:
-        if wr in _handlerList:
-            _handlerList.remove(wr)
-    finally:
-        _releaseLock()
+    # This function can be called during module teardown, when globals are
+    # set to None. It can also be called from another thread. So we need to
+    # pre-emptively grab the necessary globals and check if they're None,
+    # to prevent race conditions and failures during interpreter shutdown.
+    acquire, release, handlers = _acquireLock, _releaseLock, _handlerList
+    if acquire and release and handlers:
+        acquire()
+        try:
+            if wr in handlers:
+                handlers.remove(wr)
+        finally:
+            release()
 
 def _addHandlerRef(handler):
     """
@@ -786,7 +803,7 @@ class Handler(Filterer):
         You could, however, replace this with a custom handler if you wish.
         The record which was being processed is passed in to this method.
         """
-        if raiseExceptions:
+        if raiseExceptions and sys.stderr:  # see issue 13807
             ei = sys.exc_info()
             try:
                 traceback.print_exception(ei[0], ei[1], ei[2],
@@ -820,8 +837,12 @@ class StreamHandler(Handler):
         """
         Flushes the stream.
         """
-        if self.stream and hasattr(self.stream, "flush"):
-            self.stream.flush()
+        self.acquire()
+        try:
+            if self.stream and hasattr(self.stream, "flush"):
+                self.stream.flush()
+        finally:
+            self.release()
 
     def emit(self, record):
         """
@@ -844,7 +865,7 @@ class StreamHandler(Handler):
                 try:
                     if (isinstance(msg, unicode) and
                         getattr(stream, 'encoding', None)):
-                        ufs = fs.decode(stream.encoding)
+                        ufs = u'%s\n'
                         try:
                             stream.write(ufs % msg)
                         except UnicodeEncodeError:
@@ -880,6 +901,7 @@ class FileHandler(StreamHandler):
         self.baseFilename = os.path.abspath(filename)
         self.mode = mode
         self.encoding = encoding
+        self.delay = delay
         if delay:
             #We don't open the stream, but we still need to call the
             #Handler constructor to set level, formatter, lock etc.
@@ -892,12 +914,18 @@ class FileHandler(StreamHandler):
         """
         Closes the stream.
         """
-        if self.stream:
-            self.flush()
-            if hasattr(self.stream, "close"):
-                self.stream.close()
+        self.acquire()
+        try:
+            if self.stream:
+                self.flush()
+                if hasattr(self.stream, "close"):
+                    self.stream.close()
+                self.stream = None
+            # Issue #19523: call unconditionally to
+            # prevent a handler leak when delay is set
             StreamHandler.close(self)
-            self.stream = None
+        finally:
+            self.release()
 
     def _open(self):
         """
@@ -999,6 +1027,10 @@ class Manager(object):
         placeholder to now point to the logger.
         """
         rv = None
+        if not isinstance(name, basestring):
+            raise TypeError('A logger name must be string or Unicode')
+        if isinstance(name, unicode):
+            name = name.encode('utf-8')
         _acquireLock()
         try:
             if name in self.loggerDict:
@@ -1153,11 +1185,12 @@ class Logger(Filterer):
         if self.isEnabledFor(ERROR):
             self._log(ERROR, msg, args, **kwargs)
 
-    def exception(self, msg, *args):
+    def exception(self, msg, *args, **kwargs):
         """
         Convenience method for logging an ERROR with exception information.
         """
-        self.error(msg, exc_info=1, *args)
+        kwargs['exc_info'] = 1
+        self.error(msg, *args, **kwargs)
 
     def critical(self, msg, *args, **kwargs):
         """
@@ -1207,7 +1240,7 @@ class Logger(Filterer):
             if filename == _srcfile:
                 f = f.f_back
                 continue
-            rv = (filename, f.f_lineno, co.co_name)
+            rv = (co.co_filename, f.f_lineno, co.co_name)
             break
         return rv
 
@@ -1230,7 +1263,7 @@ class Logger(Filterer):
         all the handlers of this logger to handle the record.
         """
         if _srcfile:
-            #IronPython doesn't track Python frames, so findCaller throws an
+            #IronPython doesn't track Python frames, so findCaller raises an
             #exception on some versions of IronPython. We trap it here so that
             #IronPython can use logging.
             try:
@@ -1259,20 +1292,23 @@ class Logger(Filterer):
         """
         Add the specified handler to this logger.
         """
-        if not (hdlr in self.handlers):
-            self.handlers.append(hdlr)
+        _acquireLock()
+        try:
+            if not (hdlr in self.handlers):
+                self.handlers.append(hdlr)
+        finally:
+            _releaseLock()
 
     def removeHandler(self, hdlr):
         """
         Remove the specified handler from this logger.
         """
-        if hdlr in self.handlers:
-            #hdlr.close()
-            hdlr.acquire()
-            try:
+        _acquireLock()
+        try:
+            if hdlr in self.handlers:
                 self.handlers.remove(hdlr)
-            finally:
-                hdlr.release()
+        finally:
+            _releaseLock()
 
     def callHandlers(self, record):
         """
@@ -1493,22 +1529,28 @@ def basicConfig(**kwargs):
     using sys.stdout or sys.stderr), whereas FileHandler closes its stream
     when the handler is closed.
     """
-    if len(root.handlers) == 0:
-        filename = kwargs.get("filename")
-        if filename:
-            mode = kwargs.get("filemode", 'a')
-            hdlr = FileHandler(filename, mode)
-        else:
-            stream = kwargs.get("stream")
-            hdlr = StreamHandler(stream)
-        fs = kwargs.get("format", BASIC_FORMAT)
-        dfs = kwargs.get("datefmt", None)
-        fmt = Formatter(fs, dfs)
-        hdlr.setFormatter(fmt)
-        root.addHandler(hdlr)
-        level = kwargs.get("level")
-        if level is not None:
-            root.setLevel(level)
+    # Add thread safety in case someone mistakenly calls
+    # basicConfig() from multiple threads
+    _acquireLock()
+    try:
+        if len(root.handlers) == 0:
+            filename = kwargs.get("filename")
+            if filename:
+                mode = kwargs.get("filemode", 'a')
+                hdlr = FileHandler(filename, mode)
+            else:
+                stream = kwargs.get("stream")
+                hdlr = StreamHandler(stream)
+            fs = kwargs.get("format", BASIC_FORMAT)
+            dfs = kwargs.get("datefmt", None)
+            fmt = Formatter(fs, dfs)
+            hdlr.setFormatter(fmt)
+            root.addHandler(hdlr)
+            level = kwargs.get("level")
+            if level is not None:
+                root.setLevel(level)
+    finally:
+        _releaseLock()
 
 #---------------------------------------------------------------------------
 # Utility functions at module level.
@@ -1553,12 +1595,13 @@ def error(msg, *args, **kwargs):
         basicConfig()
     root.error(msg, *args, **kwargs)
 
-def exception(msg, *args):
+def exception(msg, *args, **kwargs):
     """
     Log a message with severity 'ERROR' on the root logger,
     with exception information.
     """
-    error(msg, exc_info=1, *args)
+    kwargs['exc_info'] = 1
+    error(msg, *args, **kwargs)
 
 def warning(msg, *args, **kwargs):
     """
@@ -1612,8 +1655,19 @@ def shutdown(handlerList=_handlerList):
         #we just ignore them if raiseExceptions is not set
         try:
             h = wr()
-            h.flush()
-            h.close()
+            if h:
+                try:
+                    h.acquire()
+                    h.flush()
+                    h.close()
+                except (IOError, ValueError):
+                    # Ignore errors which might be caused
+                    # because handlers have been closed but
+                    # references to them are still around at
+                    # application exit.
+                    pass
+                finally:
+                    h.release()
         except:
             if raiseExceptions:
                 raise
@@ -1635,8 +1689,14 @@ class NullHandler(Handler):
     a NullHandler and add it to the top-level logger of the library module or
     package.
     """
+    def handle(self, record):
+        pass
+
     def emit(self, record):
         pass
+
+    def createLock(self):
+        self.lock = None
 
 # Warnings integration
 

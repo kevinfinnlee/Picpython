@@ -6,8 +6,8 @@
 
 This HOWTO discusses Python 2.x's support for Unicode, and explains
 various problems that people commonly encounter when trying to work
-with Unicode.  (This HOWTO has not yet been updated to cover the 3.x
-versions of Python.)
+with Unicode.  For the Python 3 version, see
+<https://docs.python.org/3/howto/unicode.html>.
 
 Introduction to Unicode
 =======================
@@ -49,7 +49,7 @@ another and managed to catch on.
 
 255 characters aren't very many.  For example, you can't fit both the accented
 characters used in Western Europe and the Cyrillic alphabet used for Russian
-into the 128-255 range because there are more than 127 such characters.
+into the 128-255 range because there are more than 128 such characters.
 
 You could write files using different codes (all your Russian files in a coding
 system called KOI8, all your French files in a different coding system called
@@ -253,11 +253,11 @@ characters greater than 127 will be treated as errors::
     >>> s = unicode('abcdef')
     >>> type(s)
     <type 'unicode'>
-    >>> unicode('abcdef' + chr(255))
+    >>> unicode('abcdef' + chr(255))    #doctest: +NORMALIZE_WHITESPACE
     Traceback (most recent call last):
-      File "<stdin>", line 1, in ?
+    ...
     UnicodeDecodeError: 'ascii' codec can't decode byte 0xff in position 6:
-                        ordinal not in range(128)
+    ordinal not in range(128)
 
 The ``errors`` argument specifies the response when the input string can't be
 converted according to the encoding's rules.  Legal values for this argument are
@@ -265,11 +265,11 @@ converted according to the encoding's rules.  Legal values for this argument are
 'REPLACEMENT CHARACTER'), or 'ignore' (just leave the character out of the
 Unicode result).  The following examples show the differences::
 
-    >>> unicode('\x80abc', errors='strict')
+    >>> unicode('\x80abc', errors='strict')     #doctest: +NORMALIZE_WHITESPACE
     Traceback (most recent call last):
-      File "<stdin>", line 1, in ?
+        ...
     UnicodeDecodeError: 'ascii' codec can't decode byte 0x80 in position 0:
-                        ordinal not in range(128)
+    ordinal not in range(128)
     >>> unicode('\x80abc', errors='replace')
     u'\ufffdabc'
     >>> unicode('\x80abc', errors='ignore')
@@ -312,10 +312,11 @@ strings.  8-bit strings will be converted to Unicode before carrying out the
 operation; Python's default ASCII encoding will be used, so characters greater
 than 127 will cause an exception::
 
-    >>> s.find('Was\x9f')
+    >>> s.find('Was\x9f')                   #doctest: +NORMALIZE_WHITESPACE
     Traceback (most recent call last):
-      File "<stdin>", line 1, in ?
-    UnicodeDecodeError: 'ascii' codec can't decode byte 0x9f in position 3: ordinal not in range(128)
+        ...
+    UnicodeDecodeError: 'ascii' codec can't decode byte 0x9f in position 3:
+    ordinal not in range(128)
     >>> s.find(u'Was\x9f')
     -1
 
@@ -333,10 +334,11 @@ character references.  The following example shows the different results::
     >>> u = unichr(40960) + u'abcd' + unichr(1972)
     >>> u.encode('utf-8')
     '\xea\x80\x80abcd\xde\xb4'
-    >>> u.encode('ascii')
+    >>> u.encode('ascii')                       #doctest: +NORMALIZE_WHITESPACE
     Traceback (most recent call last):
-      File "<stdin>", line 1, in ?
-    UnicodeEncodeError: 'ascii' codec can't encode character '\ua000' in position 0: ordinal not in range(128)
+        ...
+    UnicodeEncodeError: 'ascii' codec can't encode character u'\ua000' in
+    position 0: ordinal not in range(128)
     >>> u.encode('ascii', 'ignore')
     'abcd'
     >>> u.encode('ascii', 'replace')
@@ -384,9 +386,9 @@ arbitrary code point.  Octal escapes can go up to U+01ff, which is octal 777.
 ::
 
     >>> s = u"a\xac\u1234\u20ac\U00008000"
-               ^^^^ two-digit hex escape
-                   ^^^^^^ four-digit Unicode escape
-                               ^^^^^^^^^^ eight-digit Unicode escape
+    ... #      ^^^^ two-digit hex escape
+    ... #          ^^^^^^ four-digit Unicode escape
+    ... #                      ^^^^^^^^^^ eight-digit Unicode escape
     >>> for c in s:  print ord(c),
     ...
     97 172 4660 8364 32768
@@ -433,7 +435,7 @@ When you run it with Python 2.4, it will output the following warning::
     amk:~$ python2.4 p263.py
     sys:1: DeprecationWarning: Non-ASCII character '\xe9'
          in file p263.py on line 2, but no encoding declared;
-         see http://www.python.org/peps/pep-0263.html for details
+         see https://www.python.org/peps/pep-0263.html for details
 
 Python 2.5 and higher are stricter and will produce a syntax error::
 
@@ -441,7 +443,7 @@ Python 2.5 and higher are stricter and will produce a syntax error::
     File "/tmp/p263.py", line 2
     SyntaxError: Non-ASCII character '\xc3' in file /tmp/p263.py
       on line 2, but no encoding declared; see
-      http://www.python.org/peps/pep-0263.html for details
+      https://www.python.org/peps/pep-0263.html for details
 
 
 Unicode Properties
@@ -498,7 +500,7 @@ The documentation for the :mod:`codecs` module.
 
 Marc-André Lemburg gave a presentation at EuroPython 2002 titled "Python and
 Unicode".  A PDF version of his slides is available at
-<http://downloads.egenix.com/python/Unicode-EPC2002-Talk.pdf>, and is an
+<https://downloads.egenix.com/python/Unicode-EPC2002-Talk.pdf>, and is an
 excellent overview of the design of Python's Unicode features.
 
 
@@ -685,7 +687,7 @@ References
 
 The PDF slides for Marc-André Lemburg's presentation "Writing Unicode-aware
 Applications in Python" are available at
-<http://downloads.egenix.com/python/LSM2005-Developing-Unicode-aware-applications-in-Python.pdf>
+<https://downloads.egenix.com/python/LSM2005-Developing-Unicode-aware-applications-in-Python.pdf>
 and discuss questions of character encodings as well as how to internationalize
 and localize an application.
 

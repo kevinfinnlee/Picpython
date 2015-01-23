@@ -18,11 +18,12 @@ static void
 CThunkObject_dealloc(PyObject *_self)
 {
     CThunkObject *self = (CThunkObject *)_self;
+    PyObject_GC_UnTrack(self);
     Py_XDECREF(self->converters);
     Py_XDECREF(self->callable);
     Py_XDECREF(self->restype);
-    if (self->pcl)
-        _ctypes_free_closure(self->pcl);
+    if (self->pcl_write)
+        ffi_closure_free(self->pcl_write);
     PyObject_GC_Del(self);
 }
 
@@ -256,7 +257,7 @@ static void _CallPythonObject(void *mem,
             /* XXX XXX XX
                We have the problem that c_byte or c_short have dict->size of
                1 resp. 4, but these parameters are pushed as sizeof(int) bytes.
-               BTW, the same problem occurrs when they are pushed as parameters
+               BTW, the same problem occurs when they are pushed as parameters
             */
         } else if (dict) {
             /* Hm, shouldn't we use PyCData_AtAddress() or something like that instead? */
@@ -391,7 +392,8 @@ static CThunkObject* CThunkObject_new(Py_ssize_t nArgs)
         return NULL;
     }
 
-    p->pcl = NULL;
+    p->pcl_exec = NULL;
+    p->pcl_write = NULL;
     memset(&p->cif, 0, sizeof(p->cif));
     p->converters = NULL;
     p->callable = NULL;
@@ -421,8 +423,9 @@ CThunkObject *_ctypes_alloc_callback(PyObject *callable,
 
     assert(CThunk_CheckExact(p));
 
-    p->pcl = _ctypes_alloc_closure();
-    if (p->pcl == NULL) {
+    p->pcl_write = ffi_closure_alloc(sizeof(ffi_closure),
+				     &p->pcl_exec);
+    if (p->pcl_write == NULL) {
         PyErr_NoMemory();
         goto error;
     }
@@ -467,7 +470,13 @@ CThunkObject *_ctypes_alloc_callback(PyObject *callable,
                      "ffi_prep_cif failed with %d", result);
         goto error;
     }
-    result = ffi_prep_closure(p->pcl, &p->cif, closure_fcn, p);
+#if defined(X86_DARWIN) || defined(POWERPC_DARWIN)
+    result = ffi_prep_closure(p->pcl_write, &p->cif, closure_fcn, p);
+#else
+    result = ffi_prep_closure_loc(p->pcl_write, &p->cif, closure_fcn,
+				  p,
+				  p->pcl_exec);
+#endif
     if (result != FFI_OK) {
         PyErr_Format(PyExc_RuntimeError,
                      "ffi_prep_closure failed with %d", result);

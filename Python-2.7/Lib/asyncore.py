@@ -53,8 +53,12 @@ import time
 import warnings
 
 import os
-from errno import EALREADY, EINPROGRESS, EWOULDBLOCK, ECONNRESET, \
-     ENOTCONN, ESHUTDOWN, EINTR, EISCONN, EBADF, ECONNABORTED, errorcode
+from errno import EALREADY, EINPROGRESS, EWOULDBLOCK, ECONNRESET, EINVAL, \
+     ENOTCONN, ESHUTDOWN, EINTR, EISCONN, EBADF, ECONNABORTED, EPIPE, EAGAIN, \
+     errorcode
+
+_DISCONNECTED = frozenset((ECONNRESET, ENOTCONN, ESHUTDOWN, ECONNABORTED, EPIPE,
+                           EBADF))
 
 try:
     socket_map
@@ -109,7 +113,7 @@ def readwrite(obj, flags):
         if flags & (select.POLLHUP | select.POLLERR | select.POLLNVAL):
             obj.handle_close()
     except socket.error, e:
-        if e.args[0] not in (EBADF, ECONNRESET, ENOTCONN, ESHUTDOWN, ECONNABORTED):
+        if e.args[0] not in _DISCONNECTED:
             obj.handle_error()
         else:
             obj.handle_close()
@@ -128,7 +132,8 @@ def poll(timeout=0.0, map=None):
             is_w = obj.writable()
             if is_r:
                 r.append(fd)
-            if is_w:
+            # accepting sockets should not be writable
+            if is_w and not obj.accepting:
                 w.append(fd)
             if is_r or is_w:
                 e.append(fd)
@@ -175,7 +180,8 @@ def poll2(timeout=0.0, map=None):
             flags = 0
             if obj.readable():
                 flags |= select.POLLIN | select.POLLPRI
-            if obj.writable():
+            # accepting sockets should not be writable
+            if obj.writable() and not obj.accepting:
                 flags |= select.POLLOUT
             if flags:
                 # Only check for exceptions if object was either readable
@@ -219,6 +225,7 @@ class dispatcher:
     debug = False
     connected = False
     accepting = False
+    connecting = False
     closing = False
     addr = None
     ignore_log_types = frozenset(['warning'])
@@ -242,7 +249,7 @@ class dispatcher:
             try:
                 self.addr = sock.getpeername()
             except socket.error, err:
-                if err.args[0] == ENOTCONN:
+                if err.args[0] in (ENOTCONN, EINVAL):
                     # To handle the case where we got an unconnected
                     # socket.
                     self.connected = False
@@ -336,9 +343,11 @@ class dispatcher:
 
     def connect(self, address):
         self.connected = False
+        self.connecting = True
         err = self.socket.connect_ex(address)
-        # XXX Should interpret Winsock return values
-        if err in (EINPROGRESS, EALREADY, EWOULDBLOCK):
+        if err in (EINPROGRESS, EALREADY, EWOULDBLOCK) \
+        or err == EINVAL and os.name in ('nt', 'ce'):
+            self.addr = address
             return
         if err in (0, EISCONN):
             self.addr = address
@@ -350,12 +359,15 @@ class dispatcher:
         # XXX can return either an address pair or None
         try:
             conn, addr = self.socket.accept()
-            return conn, addr
-        except socket.error, why:
-            if why.args[0] == EWOULDBLOCK:
-                pass
+        except TypeError:
+            return None
+        except socket.error as why:
+            if why.args[0] in (EWOULDBLOCK, ECONNABORTED, EAGAIN):
+                return None
             else:
                 raise
+        else:
+            return conn, addr
 
     def send(self, data):
         try:
@@ -364,7 +376,7 @@ class dispatcher:
         except socket.error, why:
             if why.args[0] == EWOULDBLOCK:
                 return 0
-            elif why.args[0] in (ECONNRESET, ENOTCONN, ESHUTDOWN, ECONNABORTED):
+            elif why.args[0] in _DISCONNECTED:
                 self.handle_close()
                 return 0
             else:
@@ -381,8 +393,8 @@ class dispatcher:
             else:
                 return data
         except socket.error, why:
-            # winsock sometimes throws ENOTCONN
-            if why.args[0] in [ECONNRESET, ENOTCONN, ESHUTDOWN, ECONNABORTED]:
+            # winsock sometimes raises ENOTCONN
+            if why.args[0] in _DISCONNECTED:
                 self.handle_close()
                 return ''
             else:
@@ -391,6 +403,7 @@ class dispatcher:
     def close(self):
         self.connected = False
         self.accepting = False
+        self.connecting = False
         self.del_channel()
         try:
             self.socket.close()
@@ -429,14 +442,19 @@ class dispatcher:
             # sockets that are connected
             self.handle_accept()
         elif not self.connected:
-            self.handle_connect_event()
+            if self.connecting:
+                self.handle_connect_event()
             self.handle_read()
         else:
             self.handle_read()
 
     def handle_connect_event(self):
-        self.connected = True
+        err = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+        if err != 0:
+            raise socket.error(err, _strerror(err))
         self.handle_connect()
+        self.connected = True
+        self.connecting = False
 
     def handle_write_event(self):
         if self.accepting:
@@ -445,12 +463,8 @@ class dispatcher:
             return
 
         if not self.connected:
-            #check for errors
-            err = self.socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
-            if err != 0:
-                raise socket.error(err, _strerror(err))
-
-            self.handle_connect_event()
+            if self.connecting:
+                self.handle_connect_event()
         self.handle_write()
 
     def handle_expt_event(self):
@@ -606,6 +620,14 @@ if os.name == 'posix':
 
         def send(self, *args):
             return os.write(self.fd, *args)
+
+        def getsockopt(self, level, optname, buflen=None):
+            if (level == socket.SOL_SOCKET and
+                optname == socket.SO_ERROR and
+                not buflen):
+                return 0
+            raise NotImplementedError("Only asyncore specific behaviour "
+                                      "implemented.")
 
         read = recv
         write = send

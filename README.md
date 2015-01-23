@@ -21,8 +21,11 @@ this repository's build scripts should be versatile enough to allow
 for changes.
 
 ###How do I build Picpython?###
+Clone this repository then run:
+git submodule init
+git submodule update
 
-Do this:
+Then do this:
 python setup.py [picpython dir]
 
 where [picpython dir] is an absolute path to where you want picpython stored. (usually /opt/passcal/other)

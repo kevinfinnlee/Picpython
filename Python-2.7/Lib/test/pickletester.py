@@ -6,7 +6,14 @@ import cStringIO
 import pickletools
 import copy_reg
 
-from test.test_support import TestFailed, have_unicode, TESTFN
+from test.test_support import TestFailed, verbose, have_unicode, TESTFN
+try:
+    from test.test_support import _2G, _1M, precisionbigmemtest
+except ImportError:
+    # this import might fail when run on older Python versions by test_xpickle
+    _2G = _1M = 0
+    def precisionbigmemtest(*args, **kwargs):
+        return lambda self: None
 
 # Tests that try a number of pickle protocols should have a
 #     for proto in protocols:
@@ -123,6 +130,21 @@ class metaclass(type):
 
 class use_metaclass(object):
     __metaclass__ = metaclass
+
+class pickling_metaclass(type):
+    def __eq__(self, other):
+        return (type(self) == type(other) and
+                self.reduce_args == other.reduce_args)
+
+    def __reduce__(self):
+        return (create_dynamic_class, self.reduce_args)
+
+    __hash__ = None
+
+def create_dynamic_class(name, bases):
+    result = pickling_metaclass(name, bases, dict())
+    result.reduce_args = (name, bases)
+    return result
 
 # DATA0 .. DATA2 are the pickles we expect under the various protocols, for
 # the object returned by create_data().
@@ -487,10 +509,10 @@ class AbstractPickleTests(unittest.TestCase):
         i = C()
         i.attr = i
         for proto in protocols:
-            s = self.dumps(i, 2)
+            s = self.dumps(i, proto)
             x = self.loads(s)
             self.assertEqual(dir(x), dir(i))
-            self.assertTrue(x.attr is x)
+            self.assertIs(x.attr, x)
 
     def test_recursive_multi(self):
         l = []
@@ -516,6 +538,8 @@ class AbstractPickleTests(unittest.TestCase):
                     "'abc\"", # open quote and close quote don't match
                     "'abc'   ?", # junk after close quote
                     "'\\'", # trailing backslash
+                    "'",    # issue #17710
+                    "' ",   # issue #17710
                     # some tests of the quoting rules
                     #"'abc\"\''",
                     #"'\\\\a\'\'\'\\\'\\\\\''",
@@ -608,6 +632,14 @@ class AbstractPickleTests(unittest.TestCase):
             s = self.dumps(a, proto)
             b = self.loads(s)
             self.assertEqual(a.__class__, b.__class__)
+
+    def test_dynamic_class(self):
+        a = create_dynamic_class("my_dynamic_class", (object,))
+        copy_reg.pickle(pickling_metaclass, pickling_metaclass.__reduce__)
+        for proto in protocols:
+            s = self.dumps(a, proto)
+            b = self.loads(s)
+            self.assertEqual(a, b)
 
     def test_structseq(self):
         import time
@@ -1120,30 +1152,34 @@ class AbstractPersistentPicklerTests(unittest.TestCase):
         if isinstance(object, int) and object % 2 == 0:
             self.id_count += 1
             return str(object)
+        elif object == "test_false_value":
+            self.false_count += 1
+            return ""
         else:
             return None
 
     def persistent_load(self, oid):
-        self.load_count += 1
-        object = int(oid)
-        assert object % 2 == 0
-        return object
+        if not oid:
+            self.load_false_count += 1
+            return "test_false_value"
+        else:
+            self.load_count += 1
+            object = int(oid)
+            assert object % 2 == 0
+            return object
 
     def test_persistence(self):
-        self.id_count = 0
-        self.load_count = 0
-        L = range(10)
-        self.assertEqual(self.loads(self.dumps(L)), L)
-        self.assertEqual(self.id_count, 5)
-        self.assertEqual(self.load_count, 5)
-
-    def test_bin_persistence(self):
-        self.id_count = 0
-        self.load_count = 0
-        L = range(10)
-        self.assertEqual(self.loads(self.dumps(L, 1)), L)
-        self.assertEqual(self.id_count, 5)
-        self.assertEqual(self.load_count, 5)
+        L = range(10) + ["test_false_value"]
+        for proto in protocols:
+            self.id_count = 0
+            self.false_count = 0
+            self.load_false_count = 0
+            self.load_count = 0
+            self.assertEqual(self.loads(self.dumps(L, proto)), L)
+            self.assertEqual(self.id_count, 5)
+            self.assertEqual(self.false_count, 1)
+            self.assertEqual(self.load_count, 5)
+            self.assertEqual(self.load_false_count, 1)
 
 class AbstractPicklerUnpicklerObjectTests(unittest.TestCase):
 
@@ -1257,3 +1293,31 @@ class AbstractPicklerUnpicklerObjectTests(unittest.TestCase):
         f.write(pickled2)
         f.seek(0)
         self.assertEqual(unpickler.load(), data2)
+
+class BigmemPickleTests(unittest.TestCase):
+
+    # Memory requirements: 1 byte per character for input strings, 1 byte
+    # for pickled data, 1 byte for unpickled strings, 1 byte for internal
+    # buffer and 1 byte of free space for resizing of internal buffer.
+
+    @precisionbigmemtest(size=_2G + 100*_1M, memuse=5)
+    def test_huge_strlist(self, size):
+        chunksize = 2**20
+        data = []
+        while size > chunksize:
+            data.append('x' * chunksize)
+            size -= chunksize
+            chunksize += 1
+        data.append('y' * size)
+
+        try:
+            for proto in protocols:
+                try:
+                    pickled = self.dumps(data, proto)
+                    res = self.loads(pickled)
+                    self.assertEqual(res, data)
+                finally:
+                    res = None
+                    pickled = None
+        finally:
+            data = None

@@ -10,6 +10,7 @@ from test_all import db, verbose, get_new_database_path
 
 #----------------------------------------------------------------------
 
+@unittest.skip("fails on Windows; see issue 22943")
 class SimpleQueueTestCase(unittest.TestCase):
     def setUp(self):
         self.filename = get_new_database_path()
@@ -98,11 +99,6 @@ class SimpleQueueTestCase(unittest.TestCase):
         if verbose:
             print '\n', '-=' * 30
             print "Running %s.test02_basicPost32..." % self.__class__.__name__
-
-        if db.version() < (3, 2, 0):
-            if verbose:
-                print "Test not run, DB not new enough..."
-            return
 
         d = db.DB()
         d.set_re_len(40)  # Queues must be fixed length

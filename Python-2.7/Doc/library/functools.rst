@@ -1,15 +1,18 @@
-:mod:`functools` --- Higher order functions and operations on callable objects
+:mod:`functools` --- Higher-order functions and operations on callable objects
 ==============================================================================
 
 .. module:: functools
-   :synopsis: Higher order functions and operations on callable objects.
+   :synopsis: Higher-order functions and operations on callable objects.
 .. moduleauthor:: Peter Harris <scav@blueyonder.co.uk>
 .. moduleauthor:: Raymond Hettinger <python@rcn.com>
 .. moduleauthor:: Nick Coghlan <ncoghlan@gmail.com>
 .. sectionauthor:: Peter Harris <scav@blueyonder.co.uk>
 
-
 .. versionadded:: 2.5
+
+**Source code:** :source:`Lib/functools.py`
+
+--------------
 
 The :mod:`functools` module is for higher-order functions: functions that act on
 or return other functions. In general, any callable object can be treated as a
@@ -19,23 +22,24 @@ The :mod:`functools` module defines the following functions:
 
 ..  function:: cmp_to_key(func)
 
-    Transform an old-style comparison function to a key-function.  Used with
-    tools that accept key functions (such as :func:`sorted`, :func:`min`,
-    :func:`max`, :func:`heapq.nlargest`, :func:`heapq.nsmallest`,
-    :func:`itertools.groupby`).
-    This function is primarily used as a transition tool for programs
-    being converted to Py3.x where comparison functions are no longer
-    supported.
+   Transform an old-style comparison function to a :term:`key function`.  Used
+   with tools that accept key functions (such as :func:`sorted`, :func:`min`,
+   :func:`max`, :func:`heapq.nlargest`, :func:`heapq.nsmallest`,
+   :func:`itertools.groupby`).  This function is primarily used as a transition
+   tool for programs being converted to Python 3 where comparison functions are
+   no longer supported.
 
-    A compare function is any callable that accept two arguments, compares
-    them, and returns a negative number for less-than, zero for equality,
-    or a positive number for greater-than.  A key function is a callable
-    that accepts one argument and returns another value that indicates
-    the position in the desired collation sequence.
+   A comparison function is any callable that accept two arguments, compares them,
+   and returns a negative number for less-than, zero for equality, or a positive
+   number for greater-than.  A key function is a callable that accepts one
+   argument and returns another value to be used as the sort key.
 
-    Example::
+   Example::
 
-        sorted(iterable, key=cmp_to_key(locale.strcoll))  # locale-aware sort order
+       sorted(iterable, key=cmp_to_key(locale.strcoll))  # locale-aware sort order
+
+   For sorting examples and a brief sorting tutorial, see :ref:`sortinghowto`.
+
 
    .. versionadded:: 2.7
 
@@ -122,9 +126,10 @@ The :mod:`functools` module defines the following functions:
 
 .. function:: wraps(wrapped[, assigned][, updated])
 
-   This is a convenience function for invoking ``partial(update_wrapper,
-   wrapped=wrapped, assigned=assigned, updated=updated)`` as a function decorator
-   when defining a wrapper function. For example:
+   This is a convenience function for invoking :func:`update_wrapper` as a
+   function decorator when defining a wrapper function.  It is equivalent to
+   ``partial(update_wrapper, wrapped=wrapped, assigned=assigned, updated=updated)``.
+   For example::
 
       >>> from functools import wraps
       >>> def my_decorator(f):

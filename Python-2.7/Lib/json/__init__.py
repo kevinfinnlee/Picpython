@@ -31,14 +31,14 @@ Encoding basic Python object hierarchies::
 Compact encoding::
 
     >>> import json
-    >>> json.dumps([1,2,3,{'4': 5, '6': 7}], separators=(',',':'))
+    >>> json.dumps([1,2,3,{'4': 5, '6': 7}], sort_keys=True, separators=(',',':'))
     '[1,2,3,{"4":5,"6":7}]'
 
 Pretty printing::
 
     >>> import json
-    >>> s = json.dumps({'4': 5, '6': 7}, sort_keys=True, indent=4)
-    >>> print '\n'.join([l.rstrip() for l in  s.splitlines()])
+    >>> print json.dumps({'4': 5, '6': 7}, sort_keys=True,
+    ...                  indent=4, separators=(',', ': '))
     {
         "4": 5,
         "6": 7
@@ -95,7 +95,7 @@ Using json.tool from the shell to validate and pretty-print::
         "json": "obj"
     }
     $ echo '{ 1.2:3.4}' | python -m json.tool
-    Expecting property name: line 1 column 2 (char 2)
+    Expecting property name enclosed in double quotes: line 1 column 3 (char 2)
 """
 __version__ = '2.0.9'
 __all__ = [
@@ -121,7 +121,7 @@ _default_encoder = JSONEncoder(
 
 def dump(obj, fp, skipkeys=False, ensure_ascii=True, check_circular=True,
         allow_nan=True, cls=None, indent=None, separators=None,
-        encoding='utf-8', default=None, **kw):
+        encoding='utf-8', default=None, sort_keys=False, **kw):
     """Serialize ``obj`` as a JSON formatted stream to ``fp`` (a
     ``.write()``-supporting file-like object).
 
@@ -129,11 +129,14 @@ def dump(obj, fp, skipkeys=False, ensure_ascii=True, check_circular=True,
     (``str``, ``unicode``, ``int``, ``long``, ``float``, ``bool``, ``None``)
     will be skipped instead of raising a ``TypeError``.
 
-    If ``ensure_ascii`` is false, then the some chunks written to ``fp``
-    may be ``unicode`` instances, subject to normal Python ``str`` to
-    ``unicode`` coercion rules. Unless ``fp.write()`` explicitly
-    understands ``unicode`` (as in ``codecs.getwriter()``) this is likely
-    to cause an error.
+    If ``ensure_ascii`` is true (the default), all non-ASCII characters in the
+    output are escaped with ``\uXXXX`` sequences, and the result is a ``str``
+    instance consisting of ASCII characters only.  If ``ensure_ascii`` is
+    ``False``, some chunks written to ``fp`` may be ``unicode`` instances.
+    This usually happens because the input contains unicode strings or the
+    ``encoding`` parameter is used. Unless ``fp.write()`` explicitly
+    understands ``unicode`` (as in ``codecs.getwriter``) this is likely to
+    cause an error.
 
     If ``check_circular`` is false, then the circular reference check
     for container types will be skipped and a circular reference will
@@ -147,7 +150,9 @@ def dump(obj, fp, skipkeys=False, ensure_ascii=True, check_circular=True,
     If ``indent`` is a non-negative integer, then JSON array elements and
     object members will be pretty-printed with that indent level. An indent
     level of 0 will only insert newlines. ``None`` is the most compact
-    representation.
+    representation.  Since the default item separator is ``', '``,  the
+    output might include trailing whitespace when ``indent`` is specified.
+    You can use ``separators=(',', ': ')`` to avoid this.
 
     If ``separators`` is an ``(item_separator, dict_separator)`` tuple
     then it will be used instead of the default ``(', ', ': ')`` separators.
@@ -158,16 +163,19 @@ def dump(obj, fp, skipkeys=False, ensure_ascii=True, check_circular=True,
     ``default(obj)`` is a function that should return a serializable version
     of obj or raise TypeError. The default simply raises TypeError.
 
+    If *sort_keys* is ``True`` (default: ``False``), then the output of
+    dictionaries will be sorted by key.
+
     To use a custom ``JSONEncoder`` subclass (e.g. one that overrides the
     ``.default()`` method to serialize additional types), specify it with
-    the ``cls`` kwarg.
+    the ``cls`` kwarg; otherwise ``JSONEncoder`` is used.
 
     """
     # cached encoder
     if (not skipkeys and ensure_ascii and
         check_circular and allow_nan and
         cls is None and indent is None and separators is None and
-        encoding == 'utf-8' and default is None and not kw):
+        encoding == 'utf-8' and default is None and not sort_keys and not kw):
         iterable = _default_encoder.iterencode(obj)
     else:
         if cls is None:
@@ -175,7 +183,7 @@ def dump(obj, fp, skipkeys=False, ensure_ascii=True, check_circular=True,
         iterable = cls(skipkeys=skipkeys, ensure_ascii=ensure_ascii,
             check_circular=check_circular, allow_nan=allow_nan, indent=indent,
             separators=separators, encoding=encoding,
-            default=default, **kw).iterencode(obj)
+            default=default, sort_keys=sort_keys, **kw).iterencode(obj)
     # could accelerate with writelines in some versions of Python, at
     # a debuggability cost
     for chunk in iterable:
@@ -184,16 +192,15 @@ def dump(obj, fp, skipkeys=False, ensure_ascii=True, check_circular=True,
 
 def dumps(obj, skipkeys=False, ensure_ascii=True, check_circular=True,
         allow_nan=True, cls=None, indent=None, separators=None,
-        encoding='utf-8', default=None, **kw):
+        encoding='utf-8', default=None, sort_keys=False, **kw):
     """Serialize ``obj`` to a JSON formatted ``str``.
 
     If ``skipkeys`` is false then ``dict`` keys that are not basic types
     (``str``, ``unicode``, ``int``, ``long``, ``float``, ``bool``, ``None``)
     will be skipped instead of raising a ``TypeError``.
 
-    If ``ensure_ascii`` is false, then the return value will be a
-    ``unicode`` instance subject to normal Python ``str`` to ``unicode``
-    coercion rules instead of being escaped to an ASCII ``str``.
+    If ``ensure_ascii`` is false, all non-ASCII characters are not escaped, and
+    the return value may be a ``unicode`` instance. See ``dump`` for details.
 
     If ``check_circular`` is false, then the circular reference check
     for container types will be skipped and a circular reference will
@@ -207,7 +214,9 @@ def dumps(obj, skipkeys=False, ensure_ascii=True, check_circular=True,
     If ``indent`` is a non-negative integer, then JSON array elements and
     object members will be pretty-printed with that indent level. An indent
     level of 0 will only insert newlines. ``None`` is the most compact
-    representation.
+    representation.  Since the default item separator is ``', '``,  the
+    output might include trailing whitespace when ``indent`` is specified.
+    You can use ``separators=(',', ': ')`` to avoid this.
 
     If ``separators`` is an ``(item_separator, dict_separator)`` tuple
     then it will be used instead of the default ``(', ', ': ')`` separators.
@@ -218,16 +227,19 @@ def dumps(obj, skipkeys=False, ensure_ascii=True, check_circular=True,
     ``default(obj)`` is a function that should return a serializable version
     of obj or raise TypeError. The default simply raises TypeError.
 
+    If *sort_keys* is ``True`` (default: ``False``), then the output of
+    dictionaries will be sorted by key.
+
     To use a custom ``JSONEncoder`` subclass (e.g. one that overrides the
     ``.default()`` method to serialize additional types), specify it with
-    the ``cls`` kwarg.
+    the ``cls`` kwarg; otherwise ``JSONEncoder`` is used.
 
     """
     # cached encoder
     if (not skipkeys and ensure_ascii and
         check_circular and allow_nan and
         cls is None and indent is None and separators is None and
-        encoding == 'utf-8' and default is None and not kw):
+        encoding == 'utf-8' and default is None and not sort_keys and not kw):
         return _default_encoder.encode(obj)
     if cls is None:
         cls = JSONEncoder
@@ -235,7 +247,7 @@ def dumps(obj, skipkeys=False, ensure_ascii=True, check_circular=True,
         skipkeys=skipkeys, ensure_ascii=ensure_ascii,
         check_circular=check_circular, allow_nan=allow_nan, indent=indent,
         separators=separators, encoding=encoding, default=default,
-        **kw).encode(obj)
+        sort_keys=sort_keys, **kw).encode(obj)
 
 
 _default_decoder = JSONDecoder(encoding=None, object_hook=None,
@@ -259,8 +271,16 @@ def load(fp, encoding=None, cls=None, object_hook=None, parse_float=None,
     ``object_hook`` will be used instead of the ``dict``. This feature
     can be used to implement custom decoders (e.g. JSON-RPC class hinting).
 
+    ``object_pairs_hook`` is an optional function that will be called with the
+    result of any object literal decoded with an ordered list of pairs.  The
+    return value of ``object_pairs_hook`` will be used instead of the ``dict``.
+    This feature can be used to implement custom decoders that rely on the
+    order that the key and value pairs are decoded (for example,
+    collections.OrderedDict will remember the order of insertion). If
+    ``object_hook`` is also defined, the ``object_pairs_hook`` takes priority.
+
     To use a custom ``JSONDecoder`` subclass, specify it with the ``cls``
-    kwarg.
+    kwarg; otherwise ``JSONDecoder`` is used.
 
     """
     return loads(fp.read(),
@@ -285,6 +305,14 @@ def loads(s, encoding=None, cls=None, object_hook=None, parse_float=None,
     ``object_hook`` will be used instead of the ``dict``. This feature
     can be used to implement custom decoders (e.g. JSON-RPC class hinting).
 
+    ``object_pairs_hook`` is an optional function that will be called with the
+    result of any object literal decoded with an ordered list of pairs.  The
+    return value of ``object_pairs_hook`` will be used instead of the ``dict``.
+    This feature can be used to implement custom decoders that rely on the
+    order that the key and value pairs are decoded (for example,
+    collections.OrderedDict will remember the order of insertion). If
+    ``object_hook`` is also defined, the ``object_pairs_hook`` takes priority.
+
     ``parse_float``, if specified, will be called with the string
     of every JSON float to be decoded. By default this is equivalent to
     float(num_str). This can be used to use another datatype or parser
@@ -301,7 +329,7 @@ def loads(s, encoding=None, cls=None, object_hook=None, parse_float=None,
     are encountered.
 
     To use a custom ``JSONDecoder`` subclass, specify it with the ``cls``
-    kwarg.
+    kwarg; otherwise ``JSONDecoder`` is used.
 
     """
     if (cls is None and encoding is None and object_hook is None and

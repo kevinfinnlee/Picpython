@@ -5,9 +5,17 @@
 # Copyright (C) 2002, 2003 Python Software Foundation.
 # Written by Greg Ward <gward@python.net>
 
-__revision__ = "$Id: textwrap.py 74912 2009-09-18 16:19:56Z georg.brandl $"
+__revision__ = "$Id$"
 
 import string, re
+
+try:
+    _unicode = unicode
+except NameError:
+    # If Python is built without Unicode support, the unicode type
+    # will not exist. Fake one.
+    class _unicode(object):
+        pass
 
 # Do the right thing with boolean values for all known Python versions
 # (so this module can be copied to projects that don't depend on Python
@@ -147,7 +155,7 @@ class TextWrapper:
         if self.replace_whitespace:
             if isinstance(text, str):
                 text = text.translate(self.whitespace_trans)
-            elif isinstance(text, unicode):
+            elif isinstance(text, _unicode):
                 text = text.translate(self.unicode_whitespace_trans)
         return text
 
@@ -167,7 +175,7 @@ class TextWrapper:
           'use', ' ', 'the', ' ', '-b', ' ', option!'
         otherwise.
         """
-        if isinstance(text, unicode):
+        if isinstance(text, _unicode):
             if self.break_on_hyphens:
                 pat = self.wordsep_re_uni
             else:

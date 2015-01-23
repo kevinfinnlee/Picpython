@@ -22,16 +22,18 @@ ste_new(struct symtable *st, identifier name, _Py_block_ty block,
               void *key, int lineno)
 {
     PySTEntryObject *ste = NULL;
-    PyObject *k;
+    PyObject *k = NULL;
 
     k = PyLong_FromVoidPtr(key);
     if (k == NULL)
         goto fail;
     ste = PyObject_New(PySTEntryObject, &PySTEntry_Type);
-    if (ste == NULL)
+    if (ste == NULL) {
+        Py_DECREF(k);
         goto fail;
+    }
     ste->ste_table = st;
-    ste->ste_id = k;
+    ste->ste_id = k; /* ste owns reference to k */
 
     ste->ste_name = name;
     Py_INCREF(name);
@@ -59,6 +61,7 @@ ste_new(struct symtable *st, identifier name, _Py_block_ty block,
     ste->ste_varargs = 0;
     ste->ste_varkeywords = 0;
     ste->ste_opt_lineno = 0;
+    ste->ste_tmpname = 0;
     ste->ste_lineno = lineno;
 
     if (st->st_cur != NULL &&
@@ -465,7 +468,7 @@ analyze_cells(PyObject *scope, PyObject *free)
          */
         if (PyDict_SetItem(scope, name, w) < 0)
             goto error;
-        if (!PyDict_DelItem(free, name) < 0)
+        if (PyDict_DelItem(free, name) < 0)
             goto error;
     }
     success = 1;
@@ -501,7 +504,7 @@ check_unoptimized(const PySTEntryObject* ste) {
     case OPT_BARE_EXEC:
         PyOS_snprintf(buf, sizeof(buf),
                       "unqualified exec is not allowed in function "
-                      "'%.100s' it %s",
+                      "'%.100s' because it %s",
                       PyString_AS_STRING(ste->ste_name), trailer);
         break;
     default:
@@ -847,7 +850,7 @@ symtable_enter_block(struct symtable *st, identifier name, _Py_block_ty block,
     st->st_cur = ste_new(st, name, block, ast, lineno);
     if (st->st_cur == NULL)
         return 0;
-    if (name == GET_IDENTIFIER(top))
+    if (block == ModuleBlock)
         st->st_global = st->st_cur->ste_symbols;
     if (prev) {
         if (PyList_Append(prev->ste_children,

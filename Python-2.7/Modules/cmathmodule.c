@@ -23,7 +23,7 @@
 /*
    CM_LARGE_DOUBLE is used to avoid spurious overflow in the sqrt, log,
    inverse trig and inverse hyperbolic trig functions.  Its log is used in the
-   evaluation of exp, cos, cosh, sin, sinh, tan, and tanh to avoid unecessary
+   evaluation of exp, cos, cosh, sin, sinh, tan, and tanh to avoid unnecessary
    overflow.
  */
 
@@ -1005,6 +1005,13 @@ cmath_rect(PyObject *self, PyObject *args)
             errno = EDOM;
         else
             errno = 0;
+    }
+    else if (phi == 0.0) {
+        /* Workaround for buggy results with phi=-0.0 on OS X 10.8.  See
+           bugs.python.org/issue18513. */
+        z.real = r;
+        z.imag = r * phi;
+        errno = 0;
     }
     else {
         z.real = r * cos(phi);

@@ -122,7 +122,8 @@ _PyModule_Clear(PyObject *m)
             if (s[0] == '_' && s[1] != '_') {
                 if (Py_VerboseFlag > 1)
                     PySys_WriteStderr("#   clear[1] %s\n", s);
-                PyDict_SetItem(d, key, Py_None);
+                if (PyDict_SetItem(d, key, Py_None) != 0)
+                    PyErr_Clear();
             }
         }
     }
@@ -135,7 +136,8 @@ _PyModule_Clear(PyObject *m)
             if (s[0] != '_' || strcmp(s, "__builtins__") != 0) {
                 if (Py_VerboseFlag > 1)
                     PySys_WriteStderr("#   clear[2] %s\n", s);
-                PyDict_SetItem(d, key, Py_None);
+                if (PyDict_SetItem(d, key, Py_None) != 0)
+                    PyErr_Clear();
             }
         }
     }
@@ -175,10 +177,7 @@ module_dealloc(PyModuleObject *m)
 {
     PyObject_GC_UnTrack(m);
     if (m->md_dict != NULL) {
-        /* If we are the only ones holding a reference, we can clear
-           the dictionary. */
-        if (Py_REFCNT(m->md_dict) == 1)
-            _PyModule_Clear((PyObject *)m);
+        _PyModule_Clear((PyObject *)m);
         Py_DECREF(m->md_dict);
     }
     Py_TYPE(m)->tp_free((PyObject *)m);

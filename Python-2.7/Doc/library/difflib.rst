@@ -37,6 +37,16 @@ diffs. For comparing directories and files, see also, the :mod:`filecmp` module.
    complicated way on how many elements the sequences have in common; best case
    time is linear.
 
+   **Automatic junk heuristic:** :class:`SequenceMatcher` supports a heuristic that
+   automatically treats certain sequence items as junk. The heuristic counts how many
+   times each individual item appears in the sequence. If an item's duplicates (after
+   the first one) account for more than 1% of the sequence and the sequence is at least
+   200 items long, this item is marked as "popular" and is treated as junk for
+   the purpose of sequence matching. This heuristic can be turned off by setting
+   the ``autojunk`` argument to ``False`` when creating the :class:`SequenceMatcher`.
+
+   .. versionadded:: 2.7.1
+      The *autojunk* parameter.
 
 .. class:: Differ
 
@@ -74,7 +84,7 @@ diffs. For comparing directories and files, see also, the :mod:`filecmp` module.
    The constructor for this class is:
 
 
-   .. function:: __init__([tabsize][, wrapcolumn][, linejunk][, charjunk])
+   .. function:: __init__(tabsize=8, wrapcolumn=None, linejunk=None, charjunk=IS_CHARACTER_JUNK)
 
       Initializes instance of :class:`HtmlDiff`.
 
@@ -321,9 +331,9 @@ diffs. For comparing directories and files, see also, the :mod:`filecmp` module.
 
 .. seealso::
 
-   `Pattern Matching: The Gestalt Approach <http://www.ddj.com/184407970?pgno=5>`_
+   `Pattern Matching: The Gestalt Approach <http://www.drdobbs.com/database/pattern-matching-the-gestalt-approach/184407970>`_
       Discussion of a similar algorithm by John W. Ratcliff and D. E. Metzener. This
-      was published in `Dr. Dobb's Journal <http://www.ddj.com/>`_ in July, 1988.
+      was published in `Dr. Dobb's Journal <http://www.drdobbs.com/>`_ in July, 1988.
 
 
 .. _sequence-matcher:
@@ -334,7 +344,7 @@ SequenceMatcher Objects
 The :class:`SequenceMatcher` class has this constructor:
 
 
-.. class:: SequenceMatcher([isjunk[, a[, b]]])
+.. class:: SequenceMatcher(isjunk=None, a='', b='', autojunk=True)
 
    Optional argument *isjunk* must be ``None`` (the default) or a one-argument
    function that takes a sequence element and returns true if and only if the
@@ -350,8 +360,13 @@ The :class:`SequenceMatcher` class has this constructor:
    The optional arguments *a* and *b* are sequences to be compared; both default to
    empty strings.  The elements of both sequences must be :term:`hashable`.
 
-   :class:`SequenceMatcher` objects have the following methods:
+   The optional argument *autojunk* can be used to disable the automatic junk
+   heuristic.
 
+   .. versionadded:: 2.7.1
+      The *autojunk* parameter.
+
+   :class:`SequenceMatcher` objects have the following methods:
 
    .. method:: set_seqs(a, b)
 
@@ -512,16 +527,11 @@ The :class:`SequenceMatcher` class has this constructor:
 
       Return an upper bound on :meth:`ratio` relatively quickly.
 
-      This isn't defined beyond that it is an upper bound on :meth:`ratio`, and
-      is faster to compute.
-
 
    .. method:: real_quick_ratio()
 
       Return an upper bound on :meth:`ratio` very quickly.
 
-      This isn't defined beyond that it is an upper bound on :meth:`ratio`, and
-      is faster to compute than either :meth:`ratio` or :meth:`quick_ratio`.
 
 The three methods that return the ratio of matching to total characters can give
 different results due to differing levels of approximation, although
@@ -622,10 +632,12 @@ The :class:`Differ` class has this constructor:
 
       Compare two sequences of lines, and generate the delta (a sequence of lines).
 
-      Each sequence must contain individual single-line strings ending with newlines.
-      Such sequences can be obtained from the :meth:`readlines` method of file-like
-      objects.  The delta generated also consists of newline-terminated strings, ready
-      to be printed as-is via the :meth:`writelines` method of a file-like object.
+      Each sequence must contain individual single-line strings ending with
+      newlines.  Such sequences can be obtained from the
+      :meth:`~file.readlines` method of file-like objects.  The delta
+      generated also consists of newline-terminated strings, ready to be
+      printed as-is via the :meth:`~file.writelines` method of a
+      file-like object.
 
 
 .. _differ-examples:
@@ -635,7 +647,7 @@ Differ Example
 
 This example compares two texts. First we set up the texts, sequences of
 individual single-line strings ending with newlines (such sequences can also be
-obtained from the :meth:`readlines` method of file-like objects):
+obtained from the :meth:`~file.readlines` method of file-like objects):
 
    >>> text1 = '''  1. Beautiful is better than ugly.
    ...   2. Explicit is better than implicit.

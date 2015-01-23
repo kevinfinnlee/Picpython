@@ -25,8 +25,8 @@
 
   2. After several checks, _build_callargs() is called which returns another
   tuple 'callargs'.  This may be the same tuple as 'inargs', a slice of
-  'inargs', or a completely fresh tuple, depending on several things (is is a
-  COM method, are 'paramflags' available).
+  'inargs', or a completely fresh tuple, depending on several things (is it a
+  COM method?, are 'paramflags' available?).
 
   3. _build_callargs also calculates bitarrays containing indexes into
   the callargs tuple, specifying how to build the return value(s) of
@@ -34,7 +34,7 @@
 
   4. _ctypes_callproc is then called with the 'callargs' tuple.  _ctypes_callproc first
   allocates two arrays.  The first is an array of 'struct argument' items, the
-  second array has 'void *' entried.
+  second array has 'void *' entries.
 
   5. If 'converters' are present (converters is a sequence of argtypes'
   from_param methods), for each item in 'callargs' converter is called and the
@@ -54,7 +54,7 @@
   So, there are 4 data structures holding processed arguments:
   - the inargs tuple (in PyCFuncPtr_call)
   - the callargs tuple (in PyCFuncPtr_call)
-  - the 'struct argguments' array
+  - the 'struct arguments' array
   - the 'void *' array
 
  */
@@ -75,6 +75,10 @@
 
 #include <ffi.h>
 #include "ctypes.h"
+#ifdef HAVE_ALLOCA_H
+/* AIX needs alloca.h for alloca() */
+#include <alloca.h>
+#endif
 
 #if defined(_DEBUG) || defined(__MINGW32__)
 /* Don't use structured exception handling on Windows if this is defined.
@@ -401,6 +405,11 @@ static DWORD HandleException(EXCEPTION_POINTERS *ptrs,
 {
     *pdw = ptrs->ExceptionRecord->ExceptionCode;
     *record = *ptrs->ExceptionRecord;
+    /* We don't want to catch breakpoint exceptions, they are used to attach
+     * a debugger to the process.
+     */
+    if (*pdw == EXCEPTION_BREAKPOINT)
+        return EXCEPTION_CONTINUE_SEARCH;
     return EXCEPTION_EXECUTE_HANDLER;
 }
 #endif
@@ -844,11 +853,11 @@ static int _call_function_pointer(int flags,
         space[0] = errno;
         errno = temp;
     }
-    Py_XDECREF(error_object);
 #ifdef WITH_THREAD
     if ((flags & FUNCFLAG_PYTHONAPI) == 0)
         Py_BLOCK_THREADS
 #endif
+    Py_XDECREF(error_object);
 #ifdef MS_WIN32
 #ifndef DONT_USE_SEH
     if (dwExceptionCode) {
@@ -1161,11 +1170,7 @@ PyObject *_ctypes_callproc(PPROC pProc,
     }
     for (i = 0; i < argcount; ++i) {
         atypes[i] = args[i].ffi_type;
-        if (atypes[i]->type == FFI_TYPE_STRUCT 
-#ifdef _WIN64
-            && atypes[i]->size <= sizeof(void *)
-#endif
-            )
+        if (atypes[i]->type == FFI_TYPE_STRUCT)
             avalues[i] = (void *)args[i].value.p;
         else
             avalues[i] = (void *)&args[i].value;
@@ -1740,7 +1745,7 @@ resize(PyObject *self, PyObject *args)
         obj->b_size = size;
         goto done;
     }
-    if (obj->b_size <= sizeof(obj->b_value)) {
+    if (!_CDataObject_HasExternalBuffer(obj)) {
         /* We are currently using the objects default buffer, but it
            isn't large enough any more. */
         void *ptr = PyMem_Malloc(size);
@@ -1798,7 +1803,9 @@ POINTER(PyObject *self, PyObject *cls)
         return result;
     }
     if (PyString_CheckExact(cls)) {
-        buf = alloca(strlen(PyString_AS_STRING(cls)) + 3 + 1);
+        buf = PyMem_Malloc(strlen(PyString_AS_STRING(cls)) + 3 + 1);
+        if (buf == NULL)
+            return PyErr_NoMemory();
         sprintf(buf, "LP_%s", PyString_AS_STRING(cls));
         result = PyObject_CallFunction((PyObject *)Py_TYPE(&PyCPointer_Type),
                                        "s(O){}",
@@ -1809,13 +1816,16 @@ POINTER(PyObject *self, PyObject *cls)
         key = PyLong_FromVoidPtr(result);
     } else if (PyType_Check(cls)) {
         typ = (PyTypeObject *)cls;
-        buf = alloca(strlen(typ->tp_name) + 3 + 1);
+        buf = PyMem_Malloc(strlen(typ->tp_name) + 3 + 1);
+        if (buf == NULL)
+            return PyErr_NoMemory();
         sprintf(buf, "LP_%s", typ->tp_name);
         result = PyObject_CallFunction((PyObject *)Py_TYPE(&PyCPointer_Type),
                                        "s(O){sO}",
                                        buf,
                                        &PyCPointer_Type,
                                        "_type_", cls);
+        PyMem_Free(buf);
         if (result == NULL)
             return result;
         Py_INCREF(cls);

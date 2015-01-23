@@ -274,7 +274,7 @@ unicodedata_category(PyObject *self, PyObject *args)
 PyDoc_STRVAR(unicodedata_bidirectional__doc__,
 "bidirectional(unichr)\n\
 \n\
-Returns the bidirectional category assigned to the Unicode character\n\
+Returns the bidirectional class assigned to the Unicode character\n\
 unichr as string. If no such value is defined, an empty string is\n\
 returned.");
 
@@ -506,7 +506,7 @@ nfd_nfkd(PyObject *self, PyObject *input, int k)
 
     stackptr = 0;
     isize = PyUnicode_GET_SIZE(input);
-    /* Overallocate atmost 10 characters. */
+    /* Overallocate at most 10 characters. */
     space = (isize > 10 ? 10 : isize) + isize;
     result = PyUnicode_FromUnicode(NULL, space);
     if (!result)
@@ -520,7 +520,7 @@ nfd_nfkd(PyObject *self, PyObject *input, int k)
         while(stackptr) {
             Py_UNICODE code = stack[--stackptr];
             /* Hangul Decomposition adds three characters in
-               a single step, so we need atleast that much room. */
+               a single step, so we need at least that much room. */
             if (space < 3) {
                 Py_ssize_t newsize = PyString_GET_SIZE(result) + 10;
                 space += 10;
@@ -682,10 +682,14 @@ nfc_nfkc(PyObject *self, PyObject *input, int k)
       comb = 0;
       while (i1 < end) {
           int comb1 = _getrecord_ex(*i1)->combining;
-          if (comb && (comb1 == 0 || comb == comb1)) {
-              /* Character is blocked. */
-              i1++;
-              continue;
+          if (comb) {
+              if (comb1 == 0)
+                  break;
+              if (comb >= comb1) {
+                  /* Character is blocked. */
+                  i1++;
+                  continue;
+              }
           }
           l = find_nfc_index(self, nfc_last, *i1);
           /* *i1 cannot be combined with *i. If *i1
@@ -709,6 +713,7 @@ nfc_nfkc(PyObject *self, PyObject *input, int k)
           /* Replace the original character. */
           *i = code;
           /* Mark the second character unused. */
+          assert(cskipped < 20);
           skipped[cskipped++] = i1;
           i1++;
           f = find_nfc_index(self, nfc_first, *i);
@@ -825,7 +830,7 @@ _gethash(const char *s, int len, int scale)
     unsigned long h = 0;
     unsigned long ix;
     for (i = 0; i < len; i++) {
-        h = (h * scale) + (unsigned char) toupper(Py_CHARMASK(s[i]));
+        h = (h * scale) + (unsigned char) Py_TOUPPER(Py_CHARMASK(s[i]));
         ix = h & 0xff000000;
         if (ix)
             h = (h ^ ((ix>>24) & 0xff)) & 0x00ffffff;
@@ -869,8 +874,9 @@ is_unified_ideograph(Py_UCS4 code)
 {
     return (
         (0x3400 <= code && code <= 0x4DB5) || /* CJK Ideograph Extension A */
-        (0x4E00 <= code && code <= 0x9FBB) || /* CJK Ideograph */
-        (0x20000 <= code && code <= 0x2A6D6));/* CJK Ideograph Extension B */
+        (0x4E00 <= code && code <= 0x9FCB) || /* CJK Ideograph, Unicode 5.2 */
+        (0x20000 <= code && code <= 0x2A6D6) || /* CJK Ideograph Extension B */
+        (0x2A700 <= code && code <= 0x2B734));  /* CJK Ideograph Extension C */
 }
 
 static int
@@ -972,7 +978,7 @@ _cmpname(PyObject *self, int code, const char* name, int namelen)
     if (!_getucname(self, code, buffer, sizeof(buffer)))
         return 0;
     for (i = 0; i < namelen; i++) {
-        if (toupper(Py_CHARMASK(name[i])) != buffer[i])
+        if (Py_TOUPPER(Py_CHARMASK(name[i])) != buffer[i])
             return 0;
     }
     return buffer[namelen] == '\0';

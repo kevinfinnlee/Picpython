@@ -32,8 +32,8 @@ class ExceptionTests(unittest.TestCase):
             raise exc("spam")
         except exc, err:
             buf2 = str(err)
-        self.assertEquals(buf1, buf2)
-        self.assertEquals(exc.__name__, excname)
+        self.assertEqual(buf1, buf2)
+        self.assertEqual(exc.__name__, excname)
 
     def testRaising(self):
         self.raise_catch(AttributeError, "AttributeError")
@@ -163,7 +163,7 @@ class ExceptionTests(unittest.TestCase):
             except TypeError, err:
                 exc, err, tb = sys.exc_info()
                 co = tb.tb_frame.f_code
-                self.assertEquals(co.co_name, "test_capi1")
+                self.assertEqual(co.co_name, "test_capi1")
                 self.assertTrue(co.co_filename.endswith('test_exceptions'+os.extsep+'py'))
             else:
                 self.fail("Expected exception")
@@ -175,10 +175,10 @@ class ExceptionTests(unittest.TestCase):
             except RuntimeError, err:
                 exc, err, tb = sys.exc_info()
                 co = tb.tb_frame.f_code
-                self.assertEquals(co.co_name, "__init__")
+                self.assertEqual(co.co_name, "__init__")
                 self.assertTrue(co.co_filename.endswith('test_exceptions'+os.extsep+'py'))
                 co2 = tb.tb_frame.f_back.f_code
-                self.assertEquals(co2.co_name, "test_capi2")
+                self.assertEqual(co2.co_name, "test_capi2")
             else:
                 self.fail("Expected exception")
 
@@ -284,14 +284,14 @@ class ExceptionTests(unittest.TestCase):
                 if type(e) is not exc:
                     raise
                 # Verify module name
-                self.assertEquals(type(e).__module__, 'exceptions')
+                self.assertEqual(type(e).__module__, 'exceptions')
                 # Verify no ref leaks in Exc_str()
                 s = str(e)
                 for checkArgName in expected:
-                    self.assertEquals(repr(getattr(e, checkArgName)),
-                                      repr(expected[checkArgName]),
-                                      'exception "%s", attribute "%s"' %
-                                       (repr(e), checkArgName))
+                    self.assertEqual(repr(getattr(e, checkArgName)),
+                                     repr(expected[checkArgName]),
+                                     'exception "%s", attribute "%s"' %
+                                      (repr(e), checkArgName))
 
                 # test for pickling support
                 for p in pickle, cPickle:
@@ -300,9 +300,9 @@ class ExceptionTests(unittest.TestCase):
                         for checkArgName in expected:
                             got = repr(getattr(new, checkArgName))
                             want = repr(expected[checkArgName])
-                            self.assertEquals(got, want,
-                                              'pickled "%r", attribute "%s"' %
-                                              (e, checkArgName))
+                            self.assertEqual(got, want,
+                                             'pickled "%r", attribute "%s"' %
+                                             (e, checkArgName))
 
 
     def testDeprecatedMessageAttribute(self):
@@ -359,7 +359,7 @@ class ExceptionTests(unittest.TestCase):
                 self.fancy_arg = fancy_arg
 
         x = DerivedException(fancy_arg=42)
-        self.assertEquals(x.fancy_arg, 42)
+        self.assertEqual(x.fancy_arg, 42)
 
     def testInfiniteRecursion(self):
         def f():
@@ -431,6 +431,12 @@ class ExceptionTests(unittest.TestCase):
         u.start = 1000
         self.assertEqual(str(u), "can't translate characters in position 1000-4: 965230951443685724997")
 
+    def test_unicode_errors_no_object(self):
+        # See issue #21134.
+        klasses = UnicodeEncodeError, UnicodeDecodeError, UnicodeTranslateError
+        for klass in klasses:
+            self.assertEqual(str(klass.__new__(klass)), "")
+
     def test_badisinstance(self):
         # Bug #2542: if issubclass(e, MyException) raises an exception,
         # it should be ignored
@@ -464,6 +470,32 @@ class ExceptionTests(unittest.TestCase):
             self.assertTrue(e is RuntimeError, e)
             self.assertIn("maximum recursion depth exceeded", str(v))
 
+    def test_new_returns_invalid_instance(self):
+        # See issue #11627.
+        class MyException(Exception):
+            def __new__(cls, *args):
+                return object()
+
+        with self.assertRaises(TypeError):
+            raise MyException
+
+    def test_assert_with_tuple_arg(self):
+        try:
+            assert False, (3,)
+        except AssertionError as e:
+            self.assertEqual(str(e), "(3,)")
+
+    def test_bad_exception_clearing(self):
+        # See issue 16445: use of Py_XDECREF instead of Py_CLEAR in
+        # BaseException_set_message gave a possible way to segfault the
+        # interpreter.
+        class Nasty(str):
+            def __del__(message):
+                del e.message
+
+        e = ValueError(Nasty("msg"))
+        e.args = ()
+        del e.message
 
 
 # Helper class used by TestSameStrAndUnicodeMsg
