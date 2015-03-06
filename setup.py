@@ -15,10 +15,10 @@ def main():
                 "freetype-2.3.11" , "hdf5-1.8.13"    , "Python-2.7" ,
                 "jpeg-6b"         , "geos-3.4.2"]
 
-    pyinstalls = ["numpy-1.8.1"   , "pexpect-2.3"     , "pmw"          ,
-                  "Imaging-1.1.7" , "matplotlib-1.3.1", "basemap-1.0.7",
-                  "Pyrex-0.9.9"   , "tables-3.1.1"    , "pyserial-2.7",
-                  "numexpr-2.2.2" , "Cython-0.20.1"]
+    pyinstalls = ["scipy"         , "numpy-1.8.1"    , "pexpect-2.3"     ,
+                  "pmw"           , "Imaging-1.1.7"  , "matplotlib-1.3.1",
+                  "basemap-1.0.7" , "Pyrex-0.9.9"    , "tables-3.1.1"    , 
+                  "pyserial-2.7"  , "numexpr-2.2.2"  , "Cython-0.20.1"]
 
     set_environment_vars()
 
